@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+:root {
+  --inv-primary: #b8860b;
+  --inv-bg: #fffaf0;
+  --inv-font-heading: "Playfair Display", Georgia, "Times New Roman", serif;
+  --inv-font-body: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: var(--inv-font-body);
+  background: #0f0d0a;
+  color: #f5efe6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

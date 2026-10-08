@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/.next
+.git
+.github
+.env
+**/.env
+**/.env.*
+!**/.env.example
+*.md
+docs
+deploy

@@ -1,0 +1,22 @@
+{
+  "name": "invitation-card",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Invitation-card.com: SaaS for building event invitation websites with 3D elements and RSVP forms",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build:shared": "npm run build -w @invitation/shared",
+    "build": "npm run build:shared && npm run build -w @invitation/api && npm run build -w @invitation/web",
+    "dev:web": "npm run dev -w @invitation/web",
+    "dev:api": "npm run start:dev -w @invitation/api",
+    "db:generate": "npm run prisma:generate -w @invitation/api",
+    "db:migrate": "npm run prisma:migrate -w @invitation/api",
+    "typecheck": "npm run build:shared && npm run typecheck -w @invitation/api && npm run typecheck -w @invitation/web"
+  }
+}

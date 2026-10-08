@@ -1,0 +1,18 @@
+# Optional: local PostgreSQL for development (needs Docker).
+# Without Docker, install PostgreSQL directly and point DATABASE_URL at it.
+name: invitation-card-dev
+
+services:
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: invitation
+      POSTGRES_PASSWORD: invitation
+      POSTGRES_DB: invitation
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+
+volumes:
+  pgdata_dev:

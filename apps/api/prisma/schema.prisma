@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
+  engineType = "client"
 }
 
 datasource db {
@@ -25,13 +26,17 @@ enum RsvpStatus {
 }
 
 model User {
-  id           String       @id @default(cuid())
-  email        String?      @unique
-  passwordHash String?
-  name         String?
-  isGuest      Boolean      @default(false)
-  createdAt    DateTime     @default(now())
-  invitations  Invitation[]
+  id            String       @id @default(cuid())
+  email         String?      @unique
+  passwordHash  String?
+  googleId      String?      @unique
+  // True once the address is confirmed by Google. Password sign-ups are not verified yet.
+  emailVerified Boolean      @default(false)
+  name          String?
+  isGuest       Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  invitations   Invitation[]
+  uploads       Upload[]
 }
 
 model Invitation {
@@ -62,4 +67,17 @@ model RsvpResponse {
   createdAt    DateTime   @default(now())
 
   @@index([invitationId])
+}
+
+model Upload {
+  id        String   @id @default(cuid())
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  // "image" or "model"
+  kind      String
+  filename  String   @unique
+  bytes     Int
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
 }

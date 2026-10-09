@@ -1,5 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
-import { Throttle } from "@nestjs/throttler";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { SkipThrottle, Throttle } from "@nestjs/throttler";
 import { CurrentUser } from "../auth/current-user.decorator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import type { AuthUser } from "../auth/jwt-auth.guard";
@@ -19,6 +19,12 @@ export class InvitationsController {
   @Get()
   list(@CurrentUser() user: AuthUser) {
     return this.invitations.list(user.id);
+  }
+
+  // Declared before ":id" so "slug-check" is not read as an id.
+  @Get("slug-check")
+  slugCheck(@CurrentUser() user: AuthUser, @Query("slug") slug = "", @Query("id") id?: string) {
+    return this.invitations.slugAvailable(slug.toLowerCase(), user.id, id);
   }
 
   @Get(":id")
@@ -47,7 +53,9 @@ export class InvitationsController {
 export class PublicInvitationsController {
   constructor(private readonly invitations: InvitationsService) {}
 
+  // The web server fetches this on behalf of every visitor, so it must not share a rate limit.
   @Get(":slug")
+  @SkipThrottle()
   get(@Param("slug") slug: string) {
     return this.invitations.getPublic(slug);
   }

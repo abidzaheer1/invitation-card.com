@@ -5,32 +5,28 @@ import {
   IsObject,
   IsOptional,
   IsString,
-  Matches,
   MaxLength,
   MinLength,
 } from "class-validator";
 import { EVENT_TYPES } from "@invitation/shared";
 
 const RSVP_STATUSES = ["ATTENDING", "DECLINED", "MAYBE"] as const;
+const EVENT_TYPE_LIST = EVENT_TYPES as unknown as string[];
 
 export class CreateInvitationDto {
-  @IsIn(EVENT_TYPES as unknown as string[])
-  eventType: (typeof EVENT_TYPES)[number];
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  title?: string;
-
   @IsOptional()
   @IsString()
   @MaxLength(60)
   templateId?: string;
+
+  @IsOptional()
+  @IsIn(EVENT_TYPE_LIST)
+  eventType?: (typeof EVENT_TYPES)[number];
 }
 
 export class UpdateInvitationDto {
   @IsOptional()
-  @IsIn(EVENT_TYPES as unknown as string[])
+  @IsIn(EVENT_TYPE_LIST)
   eventType?: (typeof EVENT_TYPES)[number];
 
   @IsOptional()
@@ -47,11 +43,7 @@ export class UpdateInvitationDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(3)
   @MaxLength(60)
-  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, {
-    message: "slug may only contain lowercase letters, numbers and single hyphens",
-  })
   slug?: string;
 }
 

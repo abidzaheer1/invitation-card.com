@@ -6,7 +6,7 @@ export class RegisterDto {
   email: string;
 
   @IsString()
-  @MinLength(8)
+  @MinLength(8, { message: "Password must be at least 8 characters" })
   @MaxLength(128)
   password: string;
 
@@ -23,4 +23,12 @@ export class LoginDto {
   @IsString()
   @MaxLength(128)
   password: string;
+}
+
+export class GoogleDto {
+  /** The ID token (JWT) returned by Google Identity Services. */
+  @IsString()
+  @MinLength(20)
+  @MaxLength(4096)
+  credential: string;
 }

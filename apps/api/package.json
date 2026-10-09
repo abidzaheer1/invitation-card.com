@@ -10,7 +10,9 @@
     "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy"
+    "prisma:deploy": "prisma migrate deploy",
+    "test": "tsc -p tsconfig.test.json && node --test --test-concurrency=1 \"dist-test/test/**/*.test.js\"",
+    "dev:local": "nest start --watch --entryFile local-dev/main"
   },
   "dependencies": {
     "@invitation/shared": "*",
@@ -20,21 +22,30 @@
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/platform-express": "^11.1.0",
     "@nestjs/throttler": "^6.4.0",
+    "@prisma/adapter-pg": "^6.19.3",
     "@prisma/client": "^6.19.3",
     "bcryptjs": "^3.0.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
     "express": "^5.1.0",
+    "google-auth-library": "^10.9.1",
     "helmet": "^8.1.0",
+    "pg": "^8.23.1",
     "prisma": "^6.19.3",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.3.16",
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@types/express": "^5.0.0",
+    "@types/multer": "^2.3.0",
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
+    "pglite-prisma-adapter": "^0.6.1",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3"
   }
 }

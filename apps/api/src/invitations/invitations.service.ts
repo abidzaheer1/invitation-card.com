@@ -5,70 +5,60 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import type { Invitation, Prisma } from "@prisma/client";
 import {
-  createEmptyInvitation,
   DEFAULT_RSVP_FIELDS,
+  createInvitationFromTemplate,
+  defaultTemplateFor,
+  getTemplate,
+  sanitizeInvitationContent,
+  sanitizeRsvpFields,
+  slugify,
+  validateSlug,
   type EventType,
+  type InvitationContent,
+  type InvitationRecord,
+  type InvitationSummary,
   type PublicInvitation,
+  type ResponsesPayload,
   type RsvpField,
+  type RsvpResponseRecord,
 } from "@invitation/shared";
 import { randomBytes } from "crypto";
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateInvitationDto, SubmitRsvpDto, UpdateInvitationDto } from "./invitations.dto";
 
-const MAX_CONTENT_BYTES = 200_000;
-const FIELD_TYPES = ["text", "email", "phone", "number", "select", "textarea"];
+const MAX_INVITATIONS_GUEST = 5;
+const MAX_INVITATIONS_ACCOUNT = 50;
+const MAX_RESPONSES_PER_INVITATION = 2000;
 
-function slugify(input: string): string {
-  const base = input
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
-  return base || "invitation";
+function toRecord(i: Invitation): InvitationRecord {
+  return {
+    id: i.id,
+    slug: i.slug,
+    eventType: i.eventType as EventType,
+    published: i.published,
+    content: i.content as unknown as InvitationContent,
+    rsvpFields: i.rsvpFields as unknown as RsvpField[],
+    createdAt: i.createdAt.toISOString(),
+    updatedAt: i.updatedAt.toISOString(),
+  };
 }
 
-function assertValidContent(content: Record<string, unknown>) {
-  if (Buffer.byteLength(JSON.stringify(content)) > MAX_CONTENT_BYTES) {
-    throw new BadRequestException("Invitation content is too large");
-  }
-  if (!Array.isArray(content.sections) || content.sections.length > 50) {
-    throw new BadRequestException("content.sections must be an array of at most 50 sections");
-  }
-  if (typeof content.theme !== "object" || content.theme === null) {
-    throw new BadRequestException("content.theme is required");
-  }
-}
-
-function assertValidFields(fields: unknown[]): RsvpField[] {
-  if (fields.length > 30) throw new BadRequestException("At most 30 RSVP fields are allowed");
-  const seen = new Set<string>();
-  return fields.map((raw) => {
-    const f = raw as Partial<RsvpField>;
-    if (
-      !f ||
-      typeof f.id !== "string" ||
-      !/^[a-zA-Z0-9_-]{1,40}$/.test(f.id) ||
-      typeof f.label !== "string" ||
-      f.label.length === 0 ||
-      f.label.length > 120 ||
-      typeof f.type !== "string" ||
-      !FIELD_TYPES.includes(f.type)
-    ) {
-      throw new BadRequestException("Invalid RSVP field definition");
+function validateAnswer(field: RsvpField, text: string): string | null {
+  switch (field.type) {
+    case "number": {
+      const n = Number(text);
+      if (!Number.isFinite(n) || n < 0 || n > 1000) return `"${field.label}" must be a number`;
+      return null;
     }
-    if (seen.has(f.id)) throw new BadRequestException(`Duplicate RSVP field id: ${f.id}`);
-    seen.add(f.id);
-    return {
-      id: f.id,
-      label: f.label,
-      type: f.type,
-      required: Boolean(f.required),
-      options: Array.isArray(f.options) ? f.options.slice(0, 30).map((o) => String(o).slice(0, 100)) : undefined,
-    } as RsvpField;
-  });
+    case "email":
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text) ? null : `"${field.label}" must be a valid email`;
+    case "select":
+      return field.options?.includes(text) ? null : `Pick one of the choices for "${field.label}"`;
+    default:
+      return null;
+  }
 }
 
 @Injectable()
@@ -85,60 +75,116 @@ export class InvitationsService {
     throw new ConflictException("Could not generate a unique link, please try again");
   }
 
-  private async ownedOrThrow(id: string, userId: string) {
+  private async ownedOrThrow(id: string, userId: string): Promise<Invitation> {
     const invitation = await this.prisma.invitation.findUnique({ where: { id } });
     if (!invitation) throw new NotFoundException("Invitation not found");
-    if (invitation.ownerId !== userId) throw new ForbiddenException();
+    if (invitation.ownerId !== userId) throw new ForbiddenException("This invitation belongs to another account");
     return invitation;
   }
 
-  async create(userId: string, dto: CreateInvitationDto) {
-    const content = createEmptyInvitation(dto.templateId ?? "classic");
-    if (dto.title) content.title = dto.title;
-    const slug = await this.uniqueSlug(dto.title ?? dto.eventType);
-    return this.prisma.invitation.create({
+  async create(userId: string, dto: CreateInvitationDto): Promise<InvitationRecord> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new ForbiddenException();
+    const count = await this.prisma.invitation.count({ where: { ownerId: userId } });
+    const max = user.isGuest ? MAX_INVITATIONS_GUEST : MAX_INVITATIONS_ACCOUNT;
+    if (count >= max) {
+      throw new ForbiddenException(
+        user.isGuest
+          ? `Guests can keep ${MAX_INVITATIONS_GUEST} invitations. Sign in to create more.`
+          : `You have reached the limit of ${MAX_INVITATIONS_ACCOUNT} invitations.`,
+      );
+    }
+
+    if (dto.templateId && !getTemplate(dto.templateId)) throw new BadRequestException("Unknown template");
+    const templateId = dto.templateId ?? (dto.eventType ? defaultTemplateFor(dto.eventType).id : undefined);
+    const { eventType, content } = createInvitationFromTemplate(templateId, dto.eventType);
+
+    const created = await this.prisma.invitation.create({
       data: {
-        slug,
+        slug: await this.uniqueSlug(content.title),
         ownerId: userId,
-        eventType: dto.eventType,
+        eventType,
         content: content as unknown as Prisma.InputJsonValue,
         rsvpFields: DEFAULT_RSVP_FIELDS as unknown as Prisma.InputJsonValue,
       },
     });
+    return toRecord(created);
   }
 
-  list(userId: string) {
-    return this.prisma.invitation.findMany({
+  async list(userId: string): Promise<InvitationSummary[]> {
+    const rows = await this.prisma.invitation.findMany({
       where: { ownerId: userId },
       orderBy: { updatedAt: "desc" },
       include: { _count: { select: { responses: true } } },
     });
+    return rows.map((r) => {
+      const content = r.content as unknown as InvitationContent;
+      return {
+        id: r.id,
+        slug: r.slug,
+        eventType: r.eventType as EventType,
+        published: r.published,
+        title: content.title,
+        hosts: content.hosts,
+        eventDate: content.eventDate,
+        coverImageUrl: content.coverImageUrl,
+        theme: content.theme,
+        responseCount: r._count.responses,
+        createdAt: r.createdAt.toISOString(),
+        updatedAt: r.updatedAt.toISOString(),
+      };
+    });
   }
 
-  get(id: string, userId: string) {
-    return this.ownedOrThrow(id, userId);
+  async get(id: string, userId: string): Promise<InvitationRecord> {
+    return toRecord(await this.ownedOrThrow(id, userId));
   }
 
-  async update(id: string, userId: string, dto: UpdateInvitationDto) {
-    await this.ownedOrThrow(id, userId);
-    if (dto.content) assertValidContent(dto.content);
-    const rsvpFields = dto.rsvpFields ? assertValidFields(dto.rsvpFields) : undefined;
+  async slugAvailable(slug: string, userId: string, id?: string) {
+    const problem = validateSlug(slug);
+    if (problem) return { available: false, reason: problem };
+    const taken = await this.prisma.invitation.findUnique({ where: { slug } });
+    if (taken && taken.id !== id) return { available: false, reason: "That link is already taken." };
+    return { available: true };
+  }
 
-    if (dto.slug) {
-      const taken = await this.prisma.invitation.findUnique({ where: { slug: dto.slug } });
-      if (taken && taken.id !== id) throw new ConflictException("That link is already taken");
+  async update(id: string, userId: string, dto: UpdateInvitationDto): Promise<InvitationRecord> {
+    const existing = await this.ownedOrThrow(id, userId);
+    const data: Prisma.InvitationUpdateInput = {};
+
+    if (dto.content !== undefined) {
+      const result = sanitizeInvitationContent(dto.content);
+      if (!result.ok) throw new BadRequestException(result.error);
+      data.content = result.value as unknown as Prisma.InputJsonValue;
+    }
+    if (dto.rsvpFields !== undefined) {
+      const result = sanitizeRsvpFields(dto.rsvpFields);
+      if (!result.ok) throw new BadRequestException(result.error);
+      data.rsvpFields = result.value as unknown as Prisma.InputJsonValue;
+    }
+    if (dto.eventType !== undefined) data.eventType = dto.eventType;
+
+    if (dto.slug !== undefined && dto.slug !== existing.slug) {
+      const check = await this.slugAvailable(dto.slug, userId, id);
+      if (!check.available) throw new ConflictException(check.reason);
+      data.slug = dto.slug;
     }
 
-    return this.prisma.invitation.update({
-      where: { id },
-      data: {
-        eventType: dto.eventType,
-        content: dto.content as Prisma.InputJsonValue | undefined,
-        rsvpFields: rsvpFields as unknown as Prisma.InputJsonValue | undefined,
-        published: dto.published,
-        slug: dto.slug,
-      },
-    });
+    if (dto.published !== undefined) {
+      if (dto.published) {
+        const owner = await this.prisma.user.findUnique({ where: { id: userId } });
+        if (owner?.isGuest) {
+          throw new ForbiddenException({
+            code: "ACCOUNT_REQUIRED",
+            message: "Sign in to publish your invitation.",
+          });
+        }
+      }
+      data.published = dto.published;
+    }
+
+    const updated = await this.prisma.invitation.update({ where: { id }, data });
+    return toRecord(updated);
   }
 
   async remove(id: string, userId: string) {
@@ -147,12 +193,46 @@ export class InvitationsService {
     return { deleted: true };
   }
 
-  async listResponses(id: string, userId: string) {
-    await this.ownedOrThrow(id, userId);
-    return this.prisma.rsvpResponse.findMany({
+  async listResponses(id: string, userId: string): Promise<ResponsesPayload> {
+    const invitation = await this.ownedOrThrow(id, userId);
+    const rows = await this.prisma.rsvpResponse.findMany({
       where: { invitationId: id },
       orderBy: { createdAt: "desc" },
     });
+    const responses: RsvpResponseRecord[] = rows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      guestName: r.guestName,
+      answers: r.answers as unknown as Record<string, string>,
+      createdAt: r.createdAt.toISOString(),
+    }));
+
+    let guestsAttending = 0;
+    for (const r of responses) {
+      if (r.status !== "ATTENDING") continue;
+      const n = parseInt(r.answers.guests ?? "", 10);
+      guestsAttending += Number.isFinite(n) && n > 0 ? n : 1;
+    }
+    const count = (s: string) => responses.filter((r) => r.status === s).length;
+    const content = invitation.content as unknown as InvitationContent;
+
+    return {
+      invitation: {
+        id: invitation.id,
+        slug: invitation.slug,
+        title: content.title,
+        published: invitation.published,
+        rsvpFields: invitation.rsvpFields as unknown as RsvpField[],
+      },
+      summary: {
+        attending: count("ATTENDING"),
+        declined: count("DECLINED"),
+        maybe: count("MAYBE"),
+        total: responses.length,
+        guestsAttending,
+      },
+      responses,
+    };
   }
 
   async getPublic(slug: string): Promise<PublicInvitation> {
@@ -161,7 +241,7 @@ export class InvitationsService {
     return {
       slug: invitation.slug,
       eventType: invitation.eventType as EventType,
-      content: invitation.content as unknown as PublicInvitation["content"],
+      content: invitation.content as unknown as InvitationContent,
       rsvpFields: invitation.rsvpFields as unknown as RsvpField[],
     };
   }
@@ -170,6 +250,11 @@ export class InvitationsService {
     const invitation = await this.prisma.invitation.findUnique({ where: { slug } });
     if (!invitation || !invitation.published) throw new NotFoundException("Invitation not found");
 
+    const total = await this.prisma.rsvpResponse.count({ where: { invitationId: invitation.id } });
+    if (total >= MAX_RESPONSES_PER_INVITATION) {
+      throw new ForbiddenException("This invitation is no longer accepting responses");
+    }
+
     const fields = invitation.rsvpFields as unknown as RsvpField[];
     const incoming = dto.answers ?? {};
     const answers: Record<string, string> = {};
@@ -177,10 +262,15 @@ export class InvitationsService {
     for (const field of fields) {
       const value = incoming[field.id];
       const text = value === undefined || value === null ? "" : String(value).trim().slice(0, 2000);
-      if (!text && field.required && dto.status === "ATTENDING") {
-        throw new BadRequestException(`"${field.label}" is required`);
+      if (!text) {
+        if (field.required && dto.status === "ATTENDING") {
+          throw new BadRequestException(`"${field.label}" is required`);
+        }
+        continue;
       }
-      if (text) answers[field.id] = text;
+      const problem = validateAnswer(field, text);
+      if (problem) throw new BadRequestException(problem);
+      answers[field.id] = text;
     }
 
     const response = await this.prisma.rsvpResponse.create({

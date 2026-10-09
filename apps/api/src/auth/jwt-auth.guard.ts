@@ -1,6 +1,7 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import type { Request } from "express";
+import { PrismaService } from "../prisma/prisma.service";
 
 export interface AuthUser {
   id: string;
@@ -17,19 +18,26 @@ function extractToken(req: Request): string | undefined {
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(protected readonly jwt: JwtService) {}
+  constructor(
+    protected readonly jwt: JwtService,
+    protected readonly prisma: PrismaService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
     const token = extractToken(req);
     if (!token) throw new UnauthorizedException("Missing token");
+    let userId: string;
     try {
-      const payload = this.jwt.verify<{ sub: string }>(token);
-      req.user = { id: payload.sub };
-      return true;
+      userId = this.jwt.verify<{ sub: string }>(token).sub;
     } catch {
       throw new UnauthorizedException("Invalid or expired token");
     }
+    // A guest account disappears when it is merged into a real one, so check it still exists.
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) throw new UnauthorizedException("This session is no longer valid");
+    req.user = { id: user.id };
+    return true;
   }
 }
 

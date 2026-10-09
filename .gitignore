@@ -11,3 +11,5 @@ coverage/
 uploads/
 *.tsbuildinfo
 next-env.d.ts
+dist-test/
+.local-db/

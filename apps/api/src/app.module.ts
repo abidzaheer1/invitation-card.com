@@ -1,21 +1,33 @@
-import { Module } from "@nestjs/common";
+import { DynamicModule, Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
+import type { PrismaClient } from "@prisma/client";
 import { PrismaModule } from "./prisma/prisma.module";
 import { HealthController } from "./health.controller";
 import { AuthModule } from "./auth/auth.module";
 import { InvitationsModule } from "./invitations/invitations.module";
+import { UploadsModule } from "./uploads/uploads.module";
 
-@Module({
-  imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 120 }]),
-    PrismaModule,
-    AuthModule,
-    InvitationsModule,
-  ],
-  controllers: [HealthController],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
-})
-export class AppModule {}
+@Module({})
+export class AppModule {
+  static register(prisma?: PrismaClient): DynamicModule {
+    return {
+      module: AppModule,
+      imports: [
+        ConfigModule.forRoot({ isGlobal: true }),
+        ThrottlerModule.forRoot({
+          throttlers: [{ ttl: 60_000, limit: 120 }],
+          // Tests fire many requests from one address.
+          skipIf: () => process.env.DISABLE_THROTTLE === "1",
+        }),
+        PrismaModule.forRoot(prisma),
+        AuthModule,
+        InvitationsModule,
+        UploadsModule,
+      ],
+      controllers: [HealthController],
+      providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+    };
+  }
+}

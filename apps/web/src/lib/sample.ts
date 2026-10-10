@@ -1,6 +1,6 @@
 import { createInvitationFromTemplate, type PublicInvitation } from "@invitation/shared";
 
-/** The invitation shown at /i/demo. It needs no database, and its date is always in the future. */
+/** The sample invitation at demo.localhost / demo.invitation-card.com. It needs no database, and its date is always in the future. */
 export function getSampleInvitation(): PublicInvitation {
   const { eventType, content } = createInvitationFromTemplate("golden-classic", "WEDDING");
   content.title = "Amira & Omar";

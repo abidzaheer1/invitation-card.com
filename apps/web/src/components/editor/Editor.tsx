@@ -226,7 +226,7 @@ export default function Editor({ id }: { id: string }) {
           ))}
         </div>
         <button type="button" onClick={() => saveNow().then(() => setPublishOpen(true))} className={cx(record.published ? button.outline : button.primary, button.small)}>
-          {record.published ? "Share" : "Publish"}
+          {record.published ? "Address" : "Publish page"}
         </button>
       </header>
       <p role="status" className={cx("px-4 py-1 text-xs sm:hidden", save === "error" ? "font-medium text-danger" : "text-ink-soft")}>

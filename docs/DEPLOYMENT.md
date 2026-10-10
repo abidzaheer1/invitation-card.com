@@ -6,7 +6,7 @@ The whole stack (web, API, PostgreSQL, HTTPS proxy) runs on one VPS with Docker 
 
 1. Order a **KVM 1** VPS (or larger) from Hostinger and choose **Ubuntu 24.04** as the OS. Check the renewal price before choosing a long term.
 2. Note the server's IP address.
-3. Point your domain at it: create **A records** for `invitation-card.com` and `www.invitation-card.com` pointing to the IP. Wait for DNS to update before the first deploy, because Caddy needs it to get the HTTPS certificate.
+3. Point your domain at it: create **A records** for `invitation-card.com`, `www.invitation-card.com`, and `*.invitation-card.com` pointing to the IP. The wildcard is what lets every invitation live at its own address, such as `sara-and-omar.invitation-card.com`. Wait for DNS to update before the first deploy, because Caddy needs it to get the HTTPS certificate.
 4. SSH in as root and run the one-time setup script (it installs Docker, a firewall, fail2ban, automatic security updates and 2 GB of swap):
 
    ```bash
@@ -91,7 +91,7 @@ IMAGE_TAG=<older-commit-sha> docker compose up -d
 
 ## Later additions
 
-- **Per-invitation subdomains** (`anna-omar.invitation-card.com`) need a wildcard DNS record and a wildcard certificate, which uses a DNS challenge in Caddy.
+- **Invitation addresses** (`sara-and-omar.invitation-card.com`) are served by the `*.{$DOMAIN}` site in the Caddyfile. Each name gets its own certificate the first time someone opens it, and only if that invitation exists. The wildcard A record from step 1 has to be in place.
 - **Uploads** (photos and 3D models) live in the `uploads` Docker volume, served by the API with long caching. Back the volume up along with the database; raise the quotas per plan when payments arrive.
 - **Google sign-in**: set `GOOGLE_CLIENT_ID` in the server `.env` (see `deploy/.env.example`).
 - **Payments** will use Stripe, since card processing cannot reasonably be self-hosted.

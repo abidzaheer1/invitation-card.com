@@ -1,7 +1,12 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import Header from "@/components/Header";
+import { invitationUrl } from "@/lib/host";
 
-export default function SiteLayout({ children }: { children: React.ReactNode }) {
+export default async function SiteLayout({ children }: { children: React.ReactNode }) {
+  const host = (await headers()).get("x-forwarded-host") ?? (await headers()).get("host");
+  const sample = invitationUrl("demo", host);
+
   return (
     <>
       <Header />
@@ -13,9 +18,9 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
             <Link href="/create" className="hover:text-ink">
               Designs
             </Link>
-            <Link href="/i/demo" className="hover:text-ink">
+            <a href={sample} className="hover:text-ink">
               Sample invitation
-            </Link>
+            </a>
           </nav>
         </div>
       </footer>

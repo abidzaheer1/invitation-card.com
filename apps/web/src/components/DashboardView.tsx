@@ -6,6 +6,7 @@ import { EVENT_LABELS, isUploadUrl, type InvitationSummary } from "@invitation/s
 import { ApiError, apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { formatShortDate } from "@/lib/format";
+import { addressSuffix, invitationUrl } from "@/lib/host";
 import Icon from "./Icon";
 import { button, cx } from "./ui";
 
@@ -20,16 +21,22 @@ function Row({
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
+  const [siteHost, setSiteHost] = useState<string | null>(null);
+  const pageUrl = siteHost ? invitationUrl(item.slug, siteHost) : "";
+
+  useEffect(() => {
+    setSiteHost(window.location.host);
+  }, []);
   const date = formatShortDate(item.eventDate);
   const cover = isUploadUrl(item.coverImageUrl) ? item.coverImageUrl : null;
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/i/${item.slug}`);
+      await navigator.clipboard.writeText(invitationUrl(item.slug, window.location.host));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      setError("Couldn't copy. Select the link on the invitation page instead.");
+      setError("Couldn't copy. Select the address on the invitation page instead.");
     }
   }
 
@@ -79,6 +86,9 @@ function Row({
           >
             {item.published ? "Live" : "Draft"}
           </span>
+          {item.published && siteHost && (
+            <span className="max-w-full truncate">{item.slug}.{addressSuffix(siteHost)}</span>
+          )}
           <span>{EVENT_LABELS[item.eventType]}</span>
           {date && <span>{date}</span>}
           <span>
@@ -101,11 +111,11 @@ function Row({
         </Link>
         {item.published && (
           <>
-            <a href={`/i/${item.slug}`} target="_blank" rel="noopener noreferrer" className={cx(button.outline, button.small)}>
-              <Icon name="external" size={15} /> View
+            <a href={pageUrl || undefined} target="_blank" rel="noopener noreferrer" className={cx(button.outline, button.small)}>
+              <Icon name="external" size={15} /> View page
             </a>
             <button type="button" onClick={copy} className={cx(button.outline, button.small)}>
-              <Icon name={copied ? "check" : "copy"} size={15} /> {copied ? "Copied" : "Copy link"}
+              <Icon name={copied ? "check" : "copy"} size={15} /> {copied ? "Copied" : "Copy address"}
             </button>
           </>
         )}
@@ -195,7 +205,7 @@ export default function DashboardView() {
         <div className="mt-12 border-t border-line pt-10">
           <h2 className="text-xl font-semibold">No invitations yet</h2>
           <p className="mt-2 max-w-md text-ink-soft">
-            Choose a design and your first draft will appear here. You can edit it as often as you like before publishing.
+            Choose a design and your first draft will appear here. When you publish, we host it as its own webpage on our domain.
           </p>
           <Link href="/create" className={cx(button.dark, "mt-6")}>
             Choose a design

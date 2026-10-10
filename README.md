@@ -17,7 +17,7 @@ An invitation is stored as JSON (`InvitationContent` in `packages/shared`). The 
 ## What works today
 
 - Landing page with a live 3D scene.
-- Public invitation page at `/i/<slug>`, server-rendered with share previews. `/i/demo` is a sample that needs no database.
+- Each published invitation is a webpage at its own address (`sara-and-omar.invitation-card.com`, or `sara-omar.localhost:3000` in development). `/i/demo` redirects to the sample page, which needs no database.
 - RSVP form with default and custom fields.
 - API: guest sessions, register/login (a guest upgrades in place and keeps their invitations), invitation CRUD, public invitation and RSVP endpoints, health check, rate limiting.
 

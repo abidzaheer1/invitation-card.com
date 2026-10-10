@@ -208,12 +208,15 @@ export default function InvitationView({
   invitation,
   demo = false,
   compact = false,
+  homeHref = "/",
 }: {
   invitation: PublicInvitation;
   /** Demo and preview mode never send replies. */
   demo?: boolean;
   /** Fits inside a phone frame instead of the full window. */
   compact?: boolean;
+  /** Product site. On a hosted invitation this is the main domain, not the invitation address. */
+  homeHref?: string;
 }) {
   const { theme } = invitation.content;
   const primary = safeColor(theme.primaryColor, "#b8860b");
@@ -248,7 +251,7 @@ export default function InvitationView({
         {compact ? (
           <span className="underline">Invitation-card.com</span>
         ) : (
-          <a href="/" className="underline">
+          <a href={homeHref} className="underline">
             Invitation-card.com
           </a>
         )}

@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { slugify, validateSlug, type InvitationRecord } from "@invitation/shared";
 import { ApiError, apiFetch } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { addressSuffix, invitationUrl } from "@/lib/host";
 import Icon from "../Icon";
 import { button, cx, field, hint, label } from "../ui";
 
@@ -32,6 +33,11 @@ export default function PublishDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [siteHost, setSiteHost] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSiteHost(window.location.host);
+  }, []);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -81,8 +87,8 @@ export default function PublishDialog({
     };
   }, [slug, open, record.slug, record.id]);
 
-  const origin = typeof window === "undefined" ? "" : window.location.origin;
-  const link = `${origin}/i/${record.slug}`;
+  const suffix = siteHost ? addressSuffix(siteHost) : "";
+  const link = siteHost ? invitationUrl(record.slug, siteHost) : "";
 
   async function publish() {
     setError("");
@@ -136,7 +142,7 @@ export default function PublishDialog({
   return (
     <dialog
       ref={ref}
-      aria-label={record.published ? "Share your invitation" : "Publish your invitation"}
+      aria-label={record.published ? "Your invitation address" : "Publish your invitation page"}
       onClose={onClose}
       onClick={(e) => {
         if (e.target === ref.current) ref.current?.close();
@@ -151,8 +157,10 @@ export default function PublishDialog({
 
           {record.published ? (
             <>
-              <h2 className="font-display text-3xl font-semibold text-forest">Your invitation is live</h2>
-              <p className="mt-2 text-ink-soft">Send this link to your guests. Changes you make in the editor go live within a few seconds.</p>
+              <h2 className="font-display text-3xl font-semibold text-forest">Your page is live</h2>
+              <p className="mt-2 text-ink-soft">
+                This is the address of your invitation webpage. Send it to guests. Edits you save show up on the page within a few seconds.
+              </p>
               <div className="mt-5 flex items-center gap-2 rounded-lg border border-line bg-sage px-3 py-2.5">
                 <code className="min-w-0 flex-1 truncate text-sm" data-testid="share-link">
                   {link}
@@ -165,7 +173,7 @@ export default function PublishDialog({
                 <a href={`https://wa.me/?text=${shareText}`} target="_blank" rel="noopener noreferrer" className={cx(button.outline, button.small)}>
                   <Icon name="share" size={15} /> WhatsApp
                 </a>
-                <a href={`/i/${record.slug}`} target="_blank" rel="noopener noreferrer" className={cx(button.outline, button.small)}>
+                <a href={link || undefined} target="_blank" rel="noopener noreferrer" className={cx(button.outline, button.small)}>
                   <Icon name="external" size={15} /> Open page
                 </a>
                 <Link href={`/dashboard/${record.id}/responses`} className={cx(button.outline, button.small)}>
@@ -174,22 +182,21 @@ export default function PublishDialog({
               </div>
               <div className="mt-6 border-t border-line pt-4">
                 <button type="button" disabled={busy} onClick={unpublish} className={cx(button.ghost, button.small)}>
-                  {busy ? "Working…" : "Unpublish (guests will see an error page)"}
+                  {busy ? "Working…" : "Take the page offline"}
                 </button>
               </div>
             </>
           ) : (
             <>
-              <h2 className="font-display text-3xl font-semibold text-forest">Publish your invitation</h2>
+              <h2 className="font-display text-3xl font-semibold text-forest">Publish your page</h2>
               <p className="mt-2 text-ink-soft">
-                Choose the link guests will open. You&apos;ll be asked to sign in or create an account so your invitation and replies stay yours.
+                Choose the address guests will open. We host the webpage on our domain. You&apos;ll sign in so the page and the replies stay with your account.
               </p>
               <div className="mt-5">
                 <label className={label} htmlFor="p-slug">
-                  Your link
+                  Page address
                 </label>
                 <div className="flex items-center overflow-hidden rounded-lg border border-line focus-within:border-forest-soft">
-                  <span className="shrink-0 bg-sage px-3 py-2.5 text-sm text-ink-soft">{origin.replace(/^https?:\/\//, "")}/i/</span>
                   <input
                     id="p-slug"
                     className="min-w-0 flex-1 px-3 py-2.5 outline-none"
@@ -200,12 +207,13 @@ export default function PublishDialog({
                     onChange={(e) => setSlug(e.target.value)}
                     aria-describedby="p-slug-hint"
                   />
+                  <span className="shrink-0 border-l border-line bg-sage px-3 py-2.5 text-sm text-ink-soft">.{suffix || "…"}</span>
                 </div>
                 <p id="p-slug-hint" className={cx(hint, slugState.kind === "bad" && "font-medium text-danger")} role={slugState.kind === "bad" ? "alert" : undefined}>
                   {slugState.kind === "bad" && slugState.reason}
                   {slugState.kind === "checking" && "Checking…"}
-                  {slugState.kind === "ok" && "This link is available."}
-                  {slugState.kind === "idle" && "Lowercase letters, numbers and hyphens."}
+                  {slugState.kind === "ok" && "This address is available."}
+                  {slugState.kind === "idle" && "Lowercase letters, numbers and hyphens. This becomes the name of your webpage."}
                 </p>
                 {slugState.kind === "bad" && slugify(title).length >= 3 && (
                   <button type="button" className="mt-1 text-sm font-semibold underline" onClick={() => setSlug(`${slugify(title)}-${Math.random().toString(36).slice(2, 6)}`)}>
@@ -219,7 +227,7 @@ export default function PublishDialog({
                 </p>
               )}
               <button type="button" onClick={publish} disabled={busy || slugState.kind === "bad" || slugState.kind === "checking"} className={cx(button.primary, "mt-6 w-full")}>
-                {busy ? "Publishing…" : "Publish"}
+                {busy ? "Publishing…" : "Publish page"}
               </button>
             </>
           )}

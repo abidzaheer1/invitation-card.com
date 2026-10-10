@@ -49,6 +49,7 @@ services:
       DATABASE_URL: postgresql://invitation:${POSTGRES_PASSWORD}@db:5432/invitation
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGINS: https://${DOMAIN}
+      ROOT_DOMAIN: ${DOMAIN}
       TRUST_PROXY: "1"
       UPLOADS_DIR: /data/uploads
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}

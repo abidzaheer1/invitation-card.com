@@ -547,3 +547,21 @@ describe("uploads", () => {
     assert.equal(more.status, 201);
   });
 });
+
+describe("invitation addresses", () => {
+  test("certificates are offered only for real invitation names", async () => {
+    assert.equal((await call("GET", "/api/internal/tls-ask?domain=demo.invitation-card.com")).status, 200);
+    assert.equal((await call("GET", "/api/internal/tls-ask?domain=invitation-card.com")).status, 403);
+    assert.equal((await call("GET", "/api/internal/tls-ask?domain=nobody.invitation-card.com")).status, 403);
+    assert.equal((await call("GET", "/api/internal/tls-ask?domain=sara.evil.com")).status, 403);
+
+    const u = await accountUser();
+    const inv = await createInvitation(u.accessToken);
+    const named = await call("PATCH", `/api/invitations/${inv.id}`, {
+      token: u.accessToken,
+      body: { slug: "sara-and-omar", published: true },
+    });
+    assert.equal(named.status, 200, JSON.stringify(named.body));
+    assert.equal((await call("GET", "/api/internal/tls-ask?domain=sara-and-omar.invitation-card.com")).status, 200);
+  });
+});

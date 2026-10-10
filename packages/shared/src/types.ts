@@ -220,6 +220,27 @@ export const RESERVED_SLUGS = [
   "static",
   "uploads",
   "www",
+  "app",
+  "mail",
+  "ftp",
+  "cdn",
+  "assets",
+  "files",
+  "images",
+  "fonts",
+  "help",
+  "support",
+  "billing",
+  "account",
+  "auth",
+  "staging",
+  "preview",
+  "dev",
+  "docs",
+  "blog",
+  "status",
+  "smtp",
+  "webmail",
 ];
 
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -227,7 +248,7 @@ export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export function validateSlug(slug: string): string | null {
   if (slug.length < 3 || slug.length > 60) return "Use between 3 and 60 characters.";
   if (!SLUG_PATTERN.test(slug)) return "Use lowercase letters, numbers and single hyphens.";
-  if (RESERVED_SLUGS.includes(slug)) return "That link is reserved. Try another.";
+  if (RESERVED_SLUGS.includes(slug)) return "That address is reserved. Try another.";
   return null;
 }
 

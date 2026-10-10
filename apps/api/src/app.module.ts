@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import type { PrismaClient } from "@prisma/client";
 import { PrismaModule } from "./prisma/prisma.module";
 import { HealthController } from "./health.controller";
+import { TlsController } from "./tls.controller";
 import { AuthModule } from "./auth/auth.module";
 import { InvitationsModule } from "./invitations/invitations.module";
 import { UploadsModule } from "./uploads/uploads.module";
@@ -26,7 +27,7 @@ export class AppModule {
         InvitationsModule,
         UploadsModule,
       ],
-      controllers: [HealthController],
+      controllers: [HealthController, TlsController],
       providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
     };
   }

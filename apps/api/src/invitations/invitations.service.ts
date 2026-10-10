@@ -144,7 +144,7 @@ export class InvitationsService {
     const problem = validateSlug(slug);
     if (problem) return { available: false, reason: problem };
     const taken = await this.prisma.invitation.findUnique({ where: { slug } });
-    if (taken && taken.id !== id) return { available: false, reason: "That link is already taken." };
+    if (taken && taken.id !== id) return { available: false, reason: "That address is already taken." };
     return { available: true };
   }
 

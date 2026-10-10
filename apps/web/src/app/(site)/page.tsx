@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { EVENT_LABELS, EVENT_TYPES, TEMPLATES, templatesForEvent } from "@invitation/shared";
 import HeroPhone from "@/components/HeroPhone";
 import { button, cx } from "@/components/ui";
+import { invitationUrl } from "@/lib/host";
 
 const STEPS = [
   {
@@ -9,12 +11,12 @@ const STEPS = [
     body: `Start from a layout made for your kind of event. There are ${TEMPLATES.length} to pick from, each with starting text you can replace.`,
   },
   {
-    title: "Make it yours",
-    body: "Change the words, colors and fonts, add photos, and pick a 3D object or upload your own. A phone preview updates as you type.",
+    title: "Customize the page",
+    body: "Change the words, colors and fonts, add photos, and pick a 3D object or upload your own. The page preview updates as you type.",
   },
   {
-    title: "Share one link",
-    body: "Publish, send the link on WhatsApp or anywhere else, and watch the replies arrive. Download the guest list as a spreadsheet.",
+    title: "We host it",
+    body: "Publish and the page goes live at an address you choose on our domain. Send that address anywhere, and replies collect on the page.",
   },
 ];
 
@@ -35,28 +37,35 @@ const INCLUDED = [
     title: "Quick on any phone",
     body: "Pages load fast, and the 3D scene only loads when it is on screen.",
   },
+  {
+    title: "An address of its own",
+    body: "Every published invitation is a webpage at a name you pick, such as sara-and-omar.invitation-card.com. Guests open it in the browser.",
+  },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const host = (await headers()).get("x-forwarded-host") ?? (await headers()).get("host");
+  const sample = invitationUrl("demo", host);
+
   return (
     <main>
       <section className="on-dark bg-forest text-white">
         <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 py-14 sm:py-20 lg:grid-cols-[1.1fr_0.9fr]">
           <div>
             <h1 className="font-display text-5xl font-semibold leading-[1.02] sm:text-6xl lg:text-7xl">
-              Invitations that open on your guests&apos; phones
+              An invitation webpage, hosted for you
             </h1>
             <p className="mt-6 max-w-xl text-lg text-white/85">
-              Pick a design for your wedding, birthday or any gathering. Add a 3D object, your photos and a reply
-              form, then share one link.
+              Design a page for a wedding, birthday or any gathering. Customize the words, photos, colors and reply
+              form, then publish it at its own address on our domain.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-x-6 gap-y-4">
               <Link href="/create" className={cx(button.primary, "px-7 py-3.5 text-lg")}>
                 Create your invitation
               </Link>
-              <Link href="/i/demo" className="font-semibold text-white underline underline-offset-4 hover:text-marigold">
+              <a href={sample} className="font-semibold text-white underline underline-offset-4 hover:text-marigold">
                 See a full sample
-              </Link>
+              </a>
             </div>
             <p className="mt-5 text-white/70">You don&apos;t need an account until you publish.</p>
           </div>
@@ -66,7 +75,7 @@ export default function Home() {
 
       <section className="mx-auto max-w-6xl px-5 py-20" aria-labelledby="how">
         <h2 id="how" className="font-display text-3xl font-semibold text-forest sm:text-4xl">
-          From idea to shared link in three steps
+          From a design to a live webpage
         </h2>
         <ol className="mt-10 grid gap-8 md:grid-cols-3">
           {STEPS.map((s, i) => (
@@ -123,7 +132,7 @@ export default function Home() {
 
       <section className="on-dark bg-forest text-white">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-6 px-5 py-14">
-          <h2 className="max-w-xl font-display text-3xl font-semibold sm:text-4xl">Your invitation is a few minutes away</h2>
+          <h2 className="max-w-xl font-display text-3xl font-semibold sm:text-4xl">Your webpage is a few minutes away</h2>
           <Link href="/create" className={cx(button.primary, "px-7 py-3.5 text-lg")}>
             Create your invitation
           </Link>

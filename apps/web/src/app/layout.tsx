@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     template: "%s | Invitation-card.com",
   },
   description:
-    "Make an invitation website for your wedding, birthday or any celebration. Add 3D objects, photos and a reply form, then share one link.",
+    "Design an invitation webpage for a wedding, birthday or any celebration. Customize it, and we host it at its own address on our domain.",
 };
 
 export const viewport: Viewport = {

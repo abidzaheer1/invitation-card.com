@@ -92,5 +92,6 @@ IMAGE_TAG=<older-commit-sha> docker compose up -d
 ## Later additions
 
 - **Per-invitation subdomains** (`anna-omar.invitation-card.com`) need a wildcard DNS record and a wildcard certificate, which uses a DNS challenge in Caddy.
-- **File uploads** (photos, music, 3D models) should go to a Docker volume served by Caddy, with size limits per plan.
+- **Uploads** (photos and 3D models) live in the `uploads` Docker volume, served by the API with long caching. Back the volume up along with the database; raise the quotas per plan when payments arrive.
+- **Google sign-in**: set `GOOGLE_CLIENT_ID` in the server `.env` (see `deploy/.env.example`).
 - **Payments** will use Stripe, since card processing cannot reasonably be self-hosted.

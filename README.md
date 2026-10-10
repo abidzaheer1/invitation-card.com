@@ -21,24 +21,25 @@ An invitation is stored as JSON (`InvitationContent` in `packages/shared`). The 
 - RSVP form with default and custom fields.
 - API: guest sessions, register/login (a guest upgrades in place and keeps their invitations), invitation CRUD, public invitation and RSVP endpoints, health check, rate limiting.
 
-Not built yet: the editor UI, sign-in screens, template gallery, file uploads and payments.
+Not built yet: payments, email verification and password reset, per-plan limits.
 
 ## Local development
 
-Requirements: Node 22 and PostgreSQL 16 (or Docker, see below). Without a database, the landing page and `/i/demo` still work.
+Requirements: Node 22. No database or Docker is needed.
 
 ```bash
 npm install
-cp apps/api/.env.example apps/api/.env      # then edit DATABASE_URL and JWT_SECRET
-npm run db:generate
-npm run db:migrate
-npm run dev:api     # http://localhost:4000/api/health
-npm run dev:web     # http://localhost:3000
+npm run dev:local   # API on http://localhost:4000 with an embedded Postgres (PGlite), data in apps/api/.local-db
+npm run dev:web     # in a second terminal: http://localhost:3000
 ```
 
-The web app forwards `/api/*` to the API in development, so no CORS setup is needed.
+The web app forwards `/api/*` to the API in development, so no CORS setup is needed. Uploads are stored in `apps/api/uploads`.
 
-Optional local database with Docker: `docker compose -f deploy/docker-compose.dev.yml up -d`.
+To use a real PostgreSQL 16 instead: copy `apps/api/.env.example` to `apps/api/.env`, set `DATABASE_URL` and `JWT_SECRET`, run `npm run db:migrate`, then `npm run dev:api`.
+
+Google sign-in appears once `GOOGLE_CLIENT_ID` is set for the API (an OAuth 2.0 Web client id; add your site origin as an authorised JavaScript origin). Without it, email sign-in is the only option.
+
+Nobody has to sign in to design an invitation: a guest session is created quietly the first time they pick a design. Signing in is asked for only when publishing, and drafts move into the account.
 
 ## API overview
 

@@ -13,8 +13,9 @@
   "scripts": {
     "build:shared": "npm run build -w @invitation/shared",
     "build": "npm run build:shared && npm run build -w @invitation/api && npm run build -w @invitation/web",
-    "dev:web": "npm run dev -w @invitation/web",
-    "dev:api": "npm run start:dev -w @invitation/api",
+    "dev:web": "npm run build:shared && npm run dev -w @invitation/web",
+    "dev:api": "npm run build:shared && npm run start:dev -w @invitation/api",
+    "dev:local": "npm run build:shared && npm run dev:local -w @invitation/api",
     "db:generate": "npm run prisma:generate -w @invitation/api",
     "db:migrate": "npm run prisma:migrate -w @invitation/api",
     "typecheck": "npm run build:shared && npm run typecheck -w @invitation/api && npm run typecheck -w @invitation/web"

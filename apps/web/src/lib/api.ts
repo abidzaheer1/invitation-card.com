@@ -8,7 +8,7 @@ function serverBase() {
 export async function fetchPublicInvitation(slug: string): Promise<PublicInvitation | null> {
   try {
     const res = await fetch(`${serverBase()}/public/invitations/${encodeURIComponent(slug)}`, {
-      next: { revalidate: 30 },
+      next: { revalidate: 15 },
     });
     if (!res.ok) return null;
     return (await res.json()) as PublicInvitation;

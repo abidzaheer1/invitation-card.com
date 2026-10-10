@@ -12,6 +12,10 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 docker compose exec -T db pg_dump -U invitation -d invitation --no-owner \
   | gzip > "backups/invitation-$STAMP.sql.gz"
 
+docker run --rm -v invitation-card_uploads:/data:ro -v "$PWD/backups":/out alpine \
+  tar czf "/out/uploads-$STAMP.tar.gz" -C /data . 
+
 # Keep the last 14 days.
+find backups -name 'uploads-*.tar.gz' -mtime +14 -delete
 find backups -name 'invitation-*.sql.gz' -mtime +14 -delete
 echo "Backup written: backups/invitation-$STAMP.sql.gz"

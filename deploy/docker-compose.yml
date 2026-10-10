@@ -27,6 +27,7 @@ services:
     environment:
       NODE_OPTIONS: --max-old-space-size=384
       INTERNAL_API_URL: http://api:4000
+      SITE_URL: https://${DOMAIN}
     mem_limit: 512m
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ >/dev/null || exit 1"]
@@ -45,9 +46,14 @@ services:
       NODE_ENV: production
       PORT: "4000"
       NODE_OPTIONS: --max-old-space-size=256
-      DATABASE_URL: postgresql://invitation:${POSTGRES_PASSWORD}@db:5432/invitation?schema=public
+      DATABASE_URL: postgresql://invitation:${POSTGRES_PASSWORD}@db:5432/invitation
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGINS: https://${DOMAIN}
+      TRUST_PROXY: "1"
+      UPLOADS_DIR: /data/uploads
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+    volumes:
+      - uploads:/data/uploads
     mem_limit: 384m
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/api/health >/dev/null || exit 1"]
@@ -88,5 +94,6 @@ services:
 
 volumes:
   pgdata:
+  uploads:
   caddy_data:
   caddy_config:

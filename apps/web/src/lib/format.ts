@@ -1,32 +1,32 @@
-/** Colors and font names come from user content, so only accept safe values. */
+import { isHexColor } from "@invitation/shared";
+
+/** Colors come from user content, so only accept safe values. */
 export function safeColor(value: string | undefined, fallback: string): string {
-  return value && /^#[0-9a-fA-F]{3,8}$/.test(value) ? value : fallback;
+  return isHexColor(value) ? value : fallback;
 }
 
-export function safeFont(value: string | undefined, fallback: string): string {
-  return value && /^[A-Za-z0-9 \-]{1,40}$/.test(value) ? `"${value}"` : fallback;
-}
-
-export function safeImageUrl(value: string): string | null {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Event times are wall-clock times at the venue. We ignore any offset and the
- * server's timezone so every guest sees the time the hosts typed in.
- */
-export function formatEventDate(iso?: string): string | null {
+function parseWallClock(iso?: string): Date | null {
   if (!iso || iso.length < 16) return null;
+  // Event times are wall-clock times at the venue. Reading them as UTC and formatting as UTC
+  // keeps every guest on the time the hosts typed, whatever their own timezone is.
   const date = new Date(`${iso.slice(0, 16)}:00Z`);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "full",
-    timeStyle: "short",
-    timeZone: "UTC",
-  }).format(date);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function formatEventDate(iso?: string): string | null {
+  const date = parseWallClock(iso);
+  if (!date) return null;
+  return new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeStyle: "short", timeZone: "UTC" }).format(date);
+}
+
+export function formatShortDate(iso?: string): string | null {
+  const date = parseWallClock(iso);
+  if (!date) return null;
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(date);
+}
+
+export function formatStamp(iso: string): string {
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(
+    new Date(iso),
+  );
 }

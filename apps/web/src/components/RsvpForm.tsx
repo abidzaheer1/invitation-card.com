@@ -6,7 +6,7 @@ import type { RsvpField, RsvpStatus } from "@invitation/shared";
 type Props = {
   slug: string;
   fields: RsvpField[];
-  /** Demo invitations show the flow without sending anything. */
+  /** Previews and demos show the flow without sending anything. */
   demo?: boolean;
 };
 
@@ -15,6 +15,9 @@ const STATUS_LABELS: { value: RsvpStatus; label: string }[] = [
   { value: "MAYBE", label: "Maybe" },
   { value: "DECLINED", label: "Regretfully decline" },
 ];
+
+const INPUT =
+  "w-full rounded-lg border border-[var(--inv-border)] bg-[var(--inv-field)] px-4 py-3 text-base text-[color:var(--inv-text)] outline-none focus:border-[var(--inv-primary)] focus:ring-2 focus:ring-[var(--inv-primary)]/30";
 
 export default function RsvpForm({ slug, fields, demo = false }: Props) {
   const [status, setStatus] = useState<RsvpStatus>("ATTENDING");
@@ -62,37 +65,34 @@ export default function RsvpForm({ slug, fields, demo = false }: Props) {
 
   if (state === "done") {
     return (
-      <div className="rounded-2xl border border-current/20 p-8 text-center" role="status">
+      <div className="rounded-2xl border border-[var(--inv-border)] p-8 text-center" role="status">
         <p className="text-xl font-semibold">Thank you!</p>
         <p className="mt-2 opacity-80">
           {demo
-            ? "This is a demo, so nothing was sent. Real invitations collect responses for the hosts."
-            : "Your response has been sent to the hosts."}
+            ? "This is a preview, so nothing was sent. On a published invitation, replies go straight to the hosts."
+            : "Your reply has been sent to the hosts."}
         </p>
       </div>
     );
   }
 
-  const inputClass =
-    "w-full rounded-lg border border-current/25 bg-white/70 px-4 py-3 text-base text-neutral-900 outline-none focus:border-[var(--inv-primary)] focus:ring-2 focus:ring-[var(--inv-primary)]/30";
-
   return (
     <form onSubmit={onSubmit} className="mx-auto w-full max-w-lg space-y-5 text-left" noValidate>
       <fieldset>
-        <legend className="mb-2 text-sm font-medium opacity-80">Your response</legend>
+        <legend className="mb-2 text-sm font-semibold opacity-80">Your reply</legend>
         <div className="grid gap-2 sm:grid-cols-3">
           {STATUS_LABELS.map((s) => (
             <label
               key={s.value}
-              className={`cursor-pointer rounded-lg border px-3 py-3 text-center text-sm transition ${
+              className={`cursor-pointer rounded-lg border px-3 py-3 text-center text-sm font-medium transition focus-within:ring-2 focus-within:ring-[var(--inv-primary)] focus-within:ring-offset-2 ${
                 status === s.value
-                  ? "border-[var(--inv-primary)] bg-[var(--inv-primary)] text-white"
-                  : "border-current/25 hover:border-[var(--inv-primary)]"
+                  ? "border-[var(--inv-primary)] bg-[var(--inv-primary)] text-[color:var(--inv-on-primary)]"
+                  : "border-[var(--inv-border)] hover:border-[var(--inv-primary)]"
               }`}
             >
               <input
                 type="radio"
-                name="status"
+                name={`status-${slug}`}
                 value={s.value}
                 checked={status === s.value}
                 onChange={() => setStatus(s.value)}
@@ -106,12 +106,12 @@ export default function RsvpForm({ slug, fields, demo = false }: Props) {
 
       {!hasNameField && (
         <div>
-          <label className="mb-1 block text-sm font-medium" htmlFor="guestName">
+          <label className="mb-1 block text-sm font-semibold" htmlFor={`guestName-${slug}`}>
             Your name
           </label>
           <input
-            id="guestName"
-            className={inputClass}
+            id={`guestName-${slug}`}
+            className={INPUT}
             value={guestName}
             onChange={(e) => setGuestName(e.target.value)}
             maxLength={120}
@@ -121,25 +121,16 @@ export default function RsvpForm({ slug, fields, demo = false }: Props) {
       )}
 
       {fields.map((field) => {
-        const id = `field-${field.id}`;
-        const common = {
-          id,
-          value: answers[field.id] ?? "",
-          className: inputClass,
-        };
+        const id = `field-${slug}-${field.id}`;
+        const common = { id, value: answers[field.id] ?? "", className: INPUT };
         return (
           <div key={field.id}>
-            <label className="mb-1 block text-sm font-medium" htmlFor={id}>
+            <label className="mb-1 block text-sm font-semibold" htmlFor={id}>
               {field.label}
               {field.required && status === "ATTENDING" ? " *" : ""}
             </label>
             {field.type === "textarea" ? (
-              <textarea
-                {...common}
-                rows={3}
-                maxLength={2000}
-                onChange={(e) => setAnswer(field.id, e.target.value)}
-              />
+              <textarea {...common} rows={3} maxLength={2000} onChange={(e) => setAnswer(field.id, e.target.value)} />
             ) : field.type === "select" ? (
               <select {...common} onChange={(e) => setAnswer(field.id, e.target.value)}>
                 <option value="">Select…</option>
@@ -164,7 +155,7 @@ export default function RsvpForm({ slug, fields, demo = false }: Props) {
       })}
 
       {error && (
-        <p className="text-sm font-medium text-red-700" role="alert">
+        <p className="text-sm font-semibold text-[color:var(--inv-error)]" role="alert">
           {error}
         </p>
       )}
@@ -172,9 +163,9 @@ export default function RsvpForm({ slug, fields, demo = false }: Props) {
       <button
         type="submit"
         disabled={state === "sending"}
-        className="w-full rounded-lg bg-[var(--inv-primary)] px-6 py-3 text-base font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+        className="w-full rounded-lg bg-[var(--inv-primary)] px-6 py-3 text-base font-semibold text-[color:var(--inv-on-primary)] transition hover:opacity-90 disabled:opacity-60"
       >
-        {state === "sending" ? "Sending…" : "Send response"}
+        {state === "sending" ? "Sending…" : "Send reply"}
       </button>
     </form>
   );

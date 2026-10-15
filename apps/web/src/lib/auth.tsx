@@ -3,39 +3,44 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AuthConfig, AuthResponse, AuthUser } from "@invitation/shared";
 import SignInDialog from "@/components/SignInDialog";
-import { ApiError, apiFetch, getToken, setToken } from "./api-client";
+import { apiFetch, getToken, onSessionChange, refreshSession, setToken } from "./api-client";
 import { AuthContext, type AuthContextValue, type SignInReason } from "./auth-context";
 
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [ready, setReady] = useState(false);
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+  const [emailEnabled, setEmailEnabled] = useState(false);
   const [dialog, setDialog] = useState<{ reason: SignInReason } | null>(null);
 
   const pendingGuest = useRef<Promise<AuthUser> | null>(null);
   const resolveDialog = useRef<((signedIn: boolean) => void) | null>(null);
 
-  // Restore a saved session and learn whether Google sign-in is available.
+  // Restore the session from the refresh cookie and learn what the server offers.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       apiFetch<AuthConfig>("/auth/config")
-        .then((c) => !cancelled && setGoogleClientId(c.googleClientId))
+        .then((c) => {
+          if (cancelled) return;
+          setGoogleClientId(c.googleClientId);
+          setEmailEnabled(c.emailEnabled);
+        })
         .catch(() => undefined);
 
-      if (getToken()) {
-        try {
-          const me = await apiFetch<AuthUser>("/auth/me");
-          if (!cancelled) setUser(me);
-        } catch (err) {
-          // An expired or unknown session is dropped; any other error keeps it for next time.
-          if (err instanceof ApiError && err.status === 401) setToken(null);
-        }
+      try {
+        const session = await refreshSession();
+        if (!cancelled && session) setUser(session.user);
+      } catch {
+        // The server couldn't be reached. Stay signed out for now; a reload tries again.
       }
       if (!cancelled) setReady(true);
     })();
+    // Keeps the screen in step when a request renews or loses the session in the background.
+    const stop = onSessionChange((session) => setUser(session?.user ?? null));
     return () => {
       cancelled = true;
+      stop();
     };
   }, []);
 
@@ -44,19 +49,25 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     setUser(res.user);
   }, []);
 
+  const refreshUser = useCallback(async (): Promise<AuthUser | null> => {
+    try {
+      const me = await apiFetch<AuthUser>("/auth/me");
+      setUser(me);
+      return me;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const ensureSession = useCallback(async (): Promise<AuthUser> => {
     if (user && getToken()) return user;
     pendingGuest.current ??= (async () => {
       try {
-        if (getToken()) {
-          try {
-            const me = await apiFetch<AuthUser>("/auth/me");
-            setUser(me);
-            return me;
-          } catch (err) {
-            if (!(err instanceof ApiError && err.status === 401)) throw err;
-            setToken(null);
-          }
+        // A returning visitor may still have a session cookie. Otherwise start a guest quietly.
+        const existing = await refreshSession();
+        if (existing) {
+          setUser(existing.user);
+          return existing.user;
         }
         const guest = await apiFetch<AuthResponse>("/auth/guest", { method: "POST" });
         completeAuth(guest);
@@ -68,7 +79,12 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     return pendingGuest.current;
   }, [user, completeAuth]);
 
-  const signOut = useCallback(() => {
+  const signOut = useCallback(async () => {
+    try {
+      await apiFetch("/auth/logout", { method: "POST" });
+    } catch {
+      /* the cookie is cleared by the server when it can be reached; clear local state regardless */
+    }
     setToken(null);
     setUser(null);
   }, []);
@@ -88,8 +104,8 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user, ready, googleClientId, ensureSession, completeAuth, signOut, requestSignIn }),
-    [user, ready, googleClientId, ensureSession, completeAuth, signOut, requestSignIn],
+    () => ({ user, ready, googleClientId, emailEnabled, ensureSession, completeAuth, refreshUser, signOut, requestSignIn }),
+    [user, ready, googleClientId, emailEnabled, ensureSession, completeAuth, refreshUser, signOut, requestSignIn],
   );
 
   return (

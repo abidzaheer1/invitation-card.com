@@ -21,7 +21,7 @@ An invitation is stored as JSON (`InvitationContent` in `packages/shared`). The 
 - RSVP form with default and custom fields.
 - API: guest sessions, register/login (a guest upgrades in place and keeps their invitations), invitation CRUD, public invitation and RSVP endpoints, health check, rate limiting.
 
-Not built yet: payments, email verification and password reset, per-plan limits.
+Not built yet: payments, per-plan limits, notification emails to hosts.
 
 ## Local development
 
@@ -37,7 +37,14 @@ The web app forwards `/api/*` to the API in development, so no CORS setup is nee
 
 To use a real PostgreSQL 16 instead: copy `apps/api/.env.example` to `apps/api/.env`, set `DATABASE_URL` and `JWT_SECRET`, run `npm run db:migrate`, then `npm run dev:api`.
 
-Google sign-in appears once `GOOGLE_CLIENT_ID` is set for the API (an OAuth 2.0 Web client id; add your site origin as an authorised JavaScript origin). Without it, email sign-in is the only option.
+### Sign-in and accounts
+
+- Email and password, and Google ("Continue with Google"). Guests can design everything first; signing in is asked for at publish time and drafts move into the account.
+- Sessions: a 15-minute access token kept in memory plus a rotating refresh token in an httpOnly cookie. Reusing an old refresh token ends that whole sign-in. Changing or resetting a password signs out every other device. The account page can sign out everywhere or delete the account and its files.
+- Passwords: 8+ characters, common passwords refused, 10 wrong attempts lock the account for 10 minutes.
+- Email: confirmation links and password reset go through any SMTP server (`SMTP_*` settings). Without `SMTP_HOST`, local development prints the emails (with their links) in the API terminal, and production turns these features off. Publishing needs a confirmed email once SMTP is set.
+
+**Google sign-in setup (5 minutes):** in [Google Cloud Console](https://console.cloud.google.com/apis/credentials) create an OAuth client ID of type *Web application*, add `http://localhost:3000` (development) and `https://YOUR_DOMAIN` as *Authorized JavaScript origins*, then put the client ID in `GOOGLE_CLIENT_ID` (`apps/api/.env`, or the server `.env`). No redirect URI is needed. The button appears automatically when the ID is set.
 
 Nobody has to sign in to design an invitation: a guest session is created quietly the first time they pick a design. Signing in is asked for only when publishing, and drafts move into the account.
 

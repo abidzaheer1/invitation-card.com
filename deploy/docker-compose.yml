@@ -53,6 +53,13 @@ services:
       TRUST_PROXY: "1"
       UPLOADS_DIR: /data/uploads
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      SITE_URL: https://${DOMAIN}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      REQUIRE_VERIFIED_EMAIL: ${REQUIRE_VERIFIED_EMAIL:-}
     volumes:
       - uploads:/data/uploads
     mem_limit: 384m

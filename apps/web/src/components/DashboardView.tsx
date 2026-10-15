@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth-context";
 import { formatShortDate } from "@/lib/format";
 import { addressSuffix, invitationUrl } from "@/lib/host";
 import Icon from "./Icon";
+import VerifyEmailNotice from "./VerifyEmailNotice";
 import { button, cx } from "./ui";
 
 function Row({
@@ -177,6 +178,8 @@ export default function DashboardView() {
           <Icon name="plus" size={17} /> New invitation
         </Link>
       </div>
+
+      <VerifyEmailNotice className="mt-8" />
 
       {user?.isGuest && items && items.length > 0 && (
         <div className="mt-8 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-marigold/60 bg-marigold/10 px-5 py-4">

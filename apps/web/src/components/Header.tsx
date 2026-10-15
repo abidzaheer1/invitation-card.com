@@ -24,7 +24,9 @@ export default function Header() {
         </Link>
 
         <nav aria-label="Main" className="flex items-center gap-1 sm:gap-2">
-          {NAV.filter((n) => n.href !== "/dashboard" || user).map((n) => (
+          {[...NAV, ...(signedIn ? [{ href: "/account", label: "Account" }] : [])]
+            .filter((n) => n.href !== "/dashboard" || user)
+            .map((n) => (
             <Link
               key={n.href}
               href={n.href}
@@ -41,14 +43,11 @@ export default function Header() {
           {ready &&
             (signedIn ? (
               <div className="ml-1 flex items-center gap-2 sm:ml-2">
-                <span className="hidden max-w-[10rem] truncate text-sm text-ink-soft md:inline" title={user.email ?? undefined}>
-                  {user.name ?? user.email}
-                </span>
                 <button
                   type="button"
                   className={cx(button.outline, button.small)}
-                  onClick={() => {
-                    signOut();
+                  onClick={async () => {
+                    await signOut();
                     router.push("/");
                   }}
                 >

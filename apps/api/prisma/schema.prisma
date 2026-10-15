@@ -19,6 +19,11 @@ enum EventType {
   OTHER
 }
 
+enum EmailTokenType {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+}
+
 enum RsvpStatus {
   ATTENDING
   DECLINED
@@ -35,8 +40,67 @@ model User {
   name          String?
   isGuest       Boolean      @default(false)
   createdAt     DateTime     @default(now())
+  // Consecutive wrong passwords. After too many the account is locked for a short while.
+  failedLogins      Int       @default(0)
+  lockedUntil       DateTime?
+  passwordChangedAt DateTime?
   invitations   Invitation[]
   uploads       Upload[]
+  sessions      Session[]
+  emailTokens   EmailToken[]
+}
+
+// One signed-in browser. The refresh token itself is never stored, only its SHA-256 hash.
+model Session {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String    @unique
+  // All sessions descended from one sign-in. Reusing a rotated token revokes the whole family.
+  familyId    String
+  expiresAt   DateTime
+  // Set when the token was swapped for a newer one.
+  rotatedAt   DateTime?
+  // Set on sign-out, password change or token theft. A revoked session never works again.
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime  @default(now())
+  userAgent   String?
+  ip          String?
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+}
+
+// Single-use links sent by email. Only the hash of the token is stored.
+model EmailToken {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      EmailTokenType
+  tokenHash String         @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime       @default(now())
+
+  @@index([userId, type])
+}
+
+// Emails waiting to be sent. Writing here first means a mail outage never loses a message.
+model EmailOutbox {
+  id        String    @id @default(cuid())
+  toEmail   String
+  subject   String
+  text      String
+  html      String
+  attempts  Int       @default(0)
+  sentAt    DateTime?
+  lastError String?
+  runAfter  DateTime  @default(now())
+  createdAt DateTime  @default(now())
+
+  @@index([sentAt, runAfter])
 }
 
 model Invitation {

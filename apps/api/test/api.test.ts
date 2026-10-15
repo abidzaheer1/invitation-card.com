@@ -4,8 +4,11 @@ import assert from "node:assert/strict";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { OAuth2Client } from "google-auth-library";
 import sharp from "sharp";
+import { existsSync } from "fs";
+import { join } from "path";
 import type { AuthResponse, InvitationRecord, InvitationSummary, ResponsesPayload } from "@invitation/shared";
 import { createApp } from "../src/bootstrap";
+import { MailService } from "../src/mail/mail.service";
 import { createEmbeddedPrisma } from "../src/local-dev/pglite";
 
 let app: NestExpressApplication;
@@ -21,9 +24,11 @@ interface Res<T = any> {
 async function call<T = any>(
   method: string,
   path: string,
-  opts: { token?: string; body?: unknown; form?: FormData } = {},
+  opts: { token?: string; body?: unknown; form?: FormData; cookie?: string; csrf?: boolean } = {},
 ): Promise<Res<T>> {
   const headers: Record<string, string> = {};
+  if (opts.cookie) headers.Cookie = opts.cookie;
+  if (opts.csrf) headers["X-IC-CSRF"] = "1";
   if (opts.token) headers.Authorization = `Bearer ${opts.token}`;
   let body: BodyInit | undefined;
   if (opts.form) body = opts.form;
@@ -40,6 +45,13 @@ async function call<T = any>(
     /* not JSON */
   }
   return { status: res.status, body: parsed, headers: res.headers };
+}
+
+/** The refresh cookie from a response, in the form a browser would send it back. */
+function refreshCookie(res: Res): string {
+  const raw = res.headers.getSetCookie().find((c) => c.startsWith("ic_rt="));
+  assert.ok(raw, "expected a refresh cookie");
+  return raw.split(";")[0];
 }
 
 const guest = async () => (await call<AuthResponse>("POST", "/api/auth/guest")).body;
@@ -235,7 +247,7 @@ describe("accounts", () => {
     assert.equal((await call("POST", "/api/auth/login", { body: { email, password: "wrong password" } })).status, 401);
     assert.equal((await call("POST", "/api/auth/login", { body: { email: newEmail(), password: "whatever12" } })).status, 401);
     const ok = await call<AuthResponse>("POST", "/api/auth/login", { body: { email, password: "correct horse battery" } });
-    assert.equal(ok.status, 201);
+    assert.equal(ok.status, 200);
     assert.equal(ok.body.user.isGuest, false);
   });
 
@@ -250,7 +262,7 @@ describe("accounts", () => {
       token: g.accessToken,
       body: { email: owner.user.email, password: "correct horse battery" },
     });
-    assert.equal(login.status, 201);
+    assert.equal(login.status, 200);
     assert.equal(login.body.user.id, owner.user.id);
 
     const list = await call<InvitationSummary[]>("GET", "/api/invitations", { token: login.body.accessToken });
@@ -285,7 +297,7 @@ describe("google sign-in", () => {
       token: g.accessToken,
       body: { credential: gcred("g-sub-1", email, "Layla") },
     });
-    assert.equal(res.status, 201);
+    assert.equal(res.status, 200);
     assert.equal(res.body.user.id, g.user.id);
     assert.equal(res.body.user.isGuest, false);
     assert.equal(res.body.user.name, "Layla");
@@ -314,7 +326,7 @@ describe("google sign-in", () => {
     const email = newEmail();
     await call("POST", "/api/auth/register", { body: { email, password: "attackers password" } });
     const google = await call<AuthResponse>("POST", "/api/auth/google", { body: { credential: gcred("g-sub-3", email) } });
-    assert.equal(google.status, 201);
+    assert.equal(google.status, 200);
     const login = await call("POST", "/api/auth/login", { body: { email, password: "attackers password" } });
     assert.equal(login.status, 401);
   });
@@ -563,5 +575,285 @@ describe("invitation addresses", () => {
     });
     assert.equal(named.status, 200, JSON.stringify(named.body));
     assert.equal((await call("GET", "/api/internal/tls-ask?domain=sara-and-omar.invitation-card.com")).status, 200);
+  });
+});
+
+// ------------------------------------------------------------------ sessions and email flows
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** The newest email sent to an address, and the token inside its link. */
+function lastMail(to: string) {
+  const mail = [...MailService.captured].reverse().find((m) => m.to === to);
+  const token = mail?.text.match(/token=([\w-]+)/)?.[1];
+  return { mail, token };
+}
+
+const refresh = (cookie?: string, csrf = true) => call<AuthResponse>("POST", "/api/auth/refresh", { cookie, csrf });
+
+describe("sessions", () => {
+  test("sign-in sets an httpOnly refresh cookie scoped to the auth routes", async () => {
+    const res = await call<AuthResponse>("POST", "/api/auth/register", {
+      body: { email: newEmail(), password: "correct horse battery" },
+    });
+    const raw = res.headers.getSetCookie().find((c) => c.startsWith("ic_rt="))!;
+    assert.match(raw, /HttpOnly/i);
+    assert.match(raw, /SameSite=Lax/i);
+    assert.match(raw, /Path=\/api\/auth/);
+    assert.equal(res.body.user.emailVerified, false);
+    assert.equal(res.body.user.hasPassword, true);
+  });
+
+  test("refresh needs the custom header, returns 204 without a cookie, and renews with one", async () => {
+    assert.equal((await refresh(undefined, true)).status, 204);
+    const g = await call<AuthResponse>("POST", "/api/auth/guest");
+    const c1 = refreshCookie(g);
+    assert.equal((await refresh(c1, false)).status, 403);
+    const renewed = await refresh(c1);
+    assert.equal(renewed.status, 200);
+    assert.equal(renewed.body.user.id, g.body.user.id);
+    assert.notEqual(refreshCookie(renewed), c1);
+    assert.equal((await call("GET", "/api/auth/me", { token: renewed.body.accessToken })).status, 200);
+    // The access token from before is still good until it expires.
+    assert.equal((await call("GET", "/api/auth/me", { token: g.body.accessToken })).status, 200);
+  });
+
+  test("an old refresh token used a moment later (two tabs) is refused without ending the session", async () => {
+    const g = await call<AuthResponse>("POST", "/api/auth/guest");
+    const c1 = refreshCookie(g);
+    const second = await refresh(c1);
+    const c2 = refreshCookie(second);
+    assert.equal((await refresh(c1)).status, 401);
+    assert.equal((await refresh(c2)).status, 200);
+  });
+
+  test("reusing a rotated refresh token later is treated as theft and ends the whole session", async () => {
+    const g = await call<AuthResponse>("POST", "/api/auth/guest");
+    const c1 = refreshCookie(g);
+    const second = await refresh(c1);
+    const c2 = refreshCookie(second);
+    await sleep(450);
+    assert.equal((await refresh(c1)).status, 401);
+    assert.equal((await refresh(c2)).status, 401);
+    assert.equal((await call("GET", "/api/auth/me", { token: second.body.accessToken })).status, 401);
+  });
+
+  test("logout ends the session straight away", async () => {
+    const g = await call<AuthResponse>("POST", "/api/auth/guest");
+    const cookie = refreshCookie(g);
+    assert.equal((await call("POST", "/api/auth/logout", { cookie })).status, 403);
+    assert.equal((await call("POST", "/api/auth/logout", { cookie, csrf: true })).status, 204);
+    assert.equal((await refresh(cookie)).status, 401);
+    assert.equal((await call("GET", "/api/auth/me", { token: g.body.accessToken })).status, 401);
+  });
+
+  test("signing out everywhere ends every device", async () => {
+    const email = newEmail();
+    const reg = await call<AuthResponse>("POST", "/api/auth/register", { body: { email, password: "correct horse battery" } });
+    const phone = await call<AuthResponse>("POST", "/api/auth/login", { body: { email, password: "correct horse battery" } });
+    assert.equal((await call("POST", "/api/auth/logout-all", { token: phone.body.accessToken })).status, 204);
+    assert.equal((await call("GET", "/api/auth/me", { token: reg.body.accessToken })).status, 401);
+    assert.equal((await call("GET", "/api/auth/me", { token: phone.body.accessToken })).status, 401);
+    assert.equal((await refresh(refreshCookie(phone))).status, 401);
+  });
+
+  test("an access token without a live session is refused", async () => {
+    assert.equal((await call("GET", "/api/auth/me", { token: "not.a.token" })).status, 401);
+    assert.equal((await call("GET", "/api/auth/me")).status, 401);
+  });
+});
+
+describe("password rules and lockout", () => {
+  test("common passwords and the email address are refused", async () => {
+    for (const password of ["password123", "12345678", "aaaaaaaaaa"]) {
+      const res = await call("POST", "/api/auth/register", { body: { email: newEmail(), password } });
+      assert.equal(res.status, 400, password);
+    }
+    const email = newEmail();
+    assert.equal((await call("POST", "/api/auth/register", { body: { email, password: email } })).status, 400);
+  });
+
+  test("ten wrong passwords lock the account for a while, even for the right password", async () => {
+    const email = newEmail();
+    await call("POST", "/api/auth/register", { body: { email, password: "correct horse battery" } });
+    for (let i = 0; i < 10; i++) {
+      assert.equal((await call("POST", "/api/auth/login", { body: { email, password: `wrong password ${i}` } })).status, 401);
+    }
+    assert.equal((await call("POST", "/api/auth/login", { body: { email, password: "correct horse battery" } })).status, 429);
+  });
+
+  test("a good sign-in resets the count of wrong passwords", async () => {
+    const email = newEmail();
+    await call("POST", "/api/auth/register", { body: { email, password: "correct horse battery" } });
+    for (let i = 0; i < 9; i++) await call("POST", "/api/auth/login", { body: { email, password: "nope nope nope" } });
+    assert.equal((await call("POST", "/api/auth/login", { body: { email, password: "correct horse battery" } })).status, 200);
+    for (let i = 0; i < 9; i++) await call("POST", "/api/auth/login", { body: { email, password: "nope nope nope" } });
+    assert.equal((await call("POST", "/api/auth/login", { body: { email, password: "correct horse battery" } })).status, 200);
+  });
+});
+
+describe("email verification", () => {
+  test("registering sends a link that confirms the address once", async () => {
+    const email = newEmail();
+    const reg = await call<AuthResponse>("POST", "/api/auth/register", { body: { email, password: "correct horse battery" } });
+    const { mail, token } = lastMail(email);
+    assert.ok(mail && token, "a verification email was sent");
+    assert.match(mail.subject, /confirm/i);
+
+    assert.equal((await call("POST", "/api/auth/verify-email", { body: { token } })).status, 200);
+    assert.equal((await call<any>("GET", "/api/auth/me", { token: reg.body.accessToken })).body.emailVerified, true);
+    assert.equal((await call("POST", "/api/auth/verify-email", { body: { token } })).status, 400);
+    assert.equal((await call("POST", "/api/auth/verify-email", { body: { token: "x".repeat(43) } })).status, 400);
+  });
+
+  test("resending is rate limited per account, and a new link replaces the old one", async () => {
+    const email = newEmail();
+    const reg = await call<AuthResponse>("POST", "/api/auth/register", { body: { email, password: "correct horse battery" } });
+    const first = lastMail(email).token;
+    assert.equal((await call("POST", "/api/auth/resend-verification", { token: reg.body.accessToken })).status, 429);
+    assert.ok(first);
+  });
+
+  test("publishing needs a confirmed email when the server requires it", async () => {
+    process.env.REQUIRE_VERIFIED_EMAIL = "1";
+    try {
+      const email = newEmail();
+      const reg = await call<AuthResponse>("POST", "/api/auth/register", { body: { email, password: "correct horse battery" } });
+      const inv = await createInvitation(reg.body.accessToken);
+      const blocked = await call("PATCH", `/api/invitations/${inv.id}`, { token: reg.body.accessToken, body: { published: true } });
+      assert.equal(blocked.status, 403);
+      assert.equal(blocked.body.code, "EMAIL_NOT_VERIFIED");
+
+      await call("POST", "/api/auth/verify-email", { body: { token: lastMail(email).token } });
+      const ok = await call("PATCH", `/api/invitations/${inv.id}`, { token: reg.body.accessToken, body: { published: true } });
+      assert.equal(ok.status, 200);
+
+      // Google proves the address, so those accounts publish straight away.
+      const g = await call<AuthResponse>("POST", "/api/auth/google", { body: { credential: gcred("g-verify-1", newEmail()) } });
+      const gi = await createInvitation(g.body.accessToken);
+      assert.equal((await call("PATCH", `/api/invitations/${gi.id}`, { token: g.body.accessToken, body: { published: true } })).status, 200);
+    } finally {
+      delete process.env.REQUIRE_VERIFIED_EMAIL;
+    }
+  });
+});
+
+describe("password reset and change", () => {
+  test("forgot-password answers the same for unknown addresses and sends nothing to them", async () => {
+    const stranger = newEmail();
+    const before = MailService.captured.length;
+    assert.equal((await call("POST", "/api/auth/forgot-password", { body: { email: stranger } })).status, 200);
+    assert.equal(MailService.captured.length, before);
+  });
+
+  test("the emailed link sets a new password, ends every session and works only once", async () => {
+    const email = newEmail();
+    const reg = await call<AuthResponse>("POST", "/api/auth/register", { body: { email, password: "correct horse battery" } });
+    assert.equal((await call("POST", "/api/auth/forgot-password", { body: { email } })).status, 200);
+    const { mail, token } = lastMail(email);
+    assert.match(mail!.subject, /reset/i);
+    assert.match(mail!.text, /\/reset-password\?token=/);
+
+    // A weak password is refused and does not use up the link.
+    assert.equal((await call("POST", "/api/auth/reset-password", { body: { token, password: "password123" } })).status, 400);
+    assert.equal((await call("POST", "/api/auth/reset-password", { body: { token, password: "a brand new passphrase" } })).status, 200);
+
+    assert.equal((await call("POST", "/api/auth/reset-password", { body: { token, password: "another passphrase 2" } })).status, 400);
+    assert.equal((await call("POST", "/api/auth/login", { body: { email, password: "correct horse battery" } })).status, 401);
+    assert.equal((await call("POST", "/api/auth/login", { body: { email, password: "a brand new passphrase" } })).status, 200);
+    assert.equal((await call("GET", "/api/auth/me", { token: reg.body.accessToken })).status, 401);
+    assert.match(lastMail(email).mail!.subject, /changed/i);
+  });
+
+  test("a reset also lifts a lockout and confirms the address", async () => {
+    const email = newEmail();
+    await call("POST", "/api/auth/register", { body: { email, password: "correct horse battery" } });
+    for (let i = 0; i < 10; i++) await call("POST", "/api/auth/login", { body: { email, password: `bad bad bad ${i}` } });
+    await sleep(1100); // the per-address cooldown for reset emails is a minute, so use a fresh token path below
+    await call("POST", "/api/auth/forgot-password", { body: { email } });
+    const token = lastMail(email).token;
+    assert.ok(token);
+    await call("POST", "/api/auth/reset-password", { body: { token, password: "fresh passphrase here" } });
+    const login = await call<AuthResponse>("POST", "/api/auth/login", { body: { email, password: "fresh passphrase here" } });
+    assert.equal(login.status, 200);
+    assert.equal(login.body.user.emailVerified, true);
+  });
+
+  test("a Google-only account can add a password through the emailed link", async () => {
+    const email = newEmail();
+    const g = await call<AuthResponse>("POST", "/api/auth/google", { body: { credential: gcred("g-setpw-1", email) } });
+    assert.equal(g.body.user.hasPassword, false);
+    await call("POST", "/api/auth/forgot-password", { body: { email } });
+    await call("POST", "/api/auth/reset-password", { body: { token: lastMail(email).token, password: "added by email link" } });
+    const login = await call<AuthResponse>("POST", "/api/auth/login", { body: { email, password: "added by email link" } });
+    assert.equal(login.status, 200);
+    assert.equal(login.body.user.hasGoogle, true);
+  });
+
+  test("changing the password needs the current one and signs out other devices", async () => {
+    const email = newEmail();
+    await call("POST", "/api/auth/register", { body: { email, password: "correct horse battery" } });
+    const here = await call<AuthResponse>("POST", "/api/auth/login", { body: { email, password: "correct horse battery" } });
+    const other = await call<AuthResponse>("POST", "/api/auth/login", { body: { email, password: "correct horse battery" } });
+
+    const change = (currentPassword: string, newPassword: string) =>
+      call("POST", "/api/auth/change-password", { token: here.body.accessToken, body: { currentPassword, newPassword } });
+    assert.equal((await change("wrong password!", "a much better passphrase")).status, 400);
+    assert.equal((await change("correct horse battery", "password123")).status, 400);
+    assert.equal((await change("correct horse battery", "a much better passphrase")).status, 200);
+
+    assert.equal((await call("GET", "/api/auth/me", { token: here.body.accessToken })).status, 200);
+    assert.equal((await call("GET", "/api/auth/me", { token: other.body.accessToken })).status, 401);
+    assert.equal((await call("POST", "/api/auth/login", { body: { email, password: "a much better passphrase" } })).status, 200);
+  });
+
+  test("Google linking ends sessions held by whoever registered the address first", async () => {
+    const email = newEmail();
+    const attacker = await call<AuthResponse>("POST", "/api/auth/register", { body: { email, password: "attackers password" } });
+    await call("POST", "/api/auth/google", { body: { credential: gcred("g-takeover-1", email) } });
+    assert.equal((await call("GET", "/api/auth/me", { token: attacker.body.accessToken })).status, 401);
+    assert.equal((await refresh(refreshCookie(attacker))).status, 401);
+  });
+});
+
+describe("account profile and deletion", () => {
+  test("the name can be changed", async () => {
+    const acc = await accountUser();
+    const res = await call<any>("PATCH", "/api/auth/me", { token: acc.accessToken, body: { name: "  Aisha  " } });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.name, "Aisha");
+  });
+
+  test("deleting the account needs the password and removes everything, including files", async () => {
+    const email = newEmail();
+    const reg = await call<AuthResponse>("POST", "/api/auth/register", { body: { email, password: "correct horse battery" } });
+    const inv = await createInvitation(reg.body.accessToken);
+    const png = await sharp({ create: { width: 40, height: 40, channels: 3, background: "#123456" } }).png().toBuffer();
+    const form = new FormData();
+    form.append("kind", "image");
+    form.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), "a.png");
+    const up = await call<{ url: string }>("POST", "/api/uploads", { token: reg.body.accessToken, form });
+    assert.equal(up.status, 201);
+    const filePath = join(process.env.UPLOADS_DIR!, up.body.url.split("/").pop()!);
+    assert.ok(existsSync(filePath));
+
+    const del = (password?: string) => call("DELETE", "/api/auth/me", { token: reg.body.accessToken, body: { password } });
+    assert.equal((await del()).status, 400);
+    assert.equal((await del("wrong password!")).status, 400);
+    assert.equal((await del("correct horse battery")).status, 204);
+
+    assert.equal((await call("GET", "/api/auth/me", { token: reg.body.accessToken })).status, 401);
+    assert.equal((await call("POST", "/api/auth/login", { body: { email, password: "correct horse battery" } })).status, 401);
+    assert.equal(existsSync(filePath), false);
+    assert.equal((await call("GET", `/api/public/invitations/${inv.slug}`)).status, 404);
+  });
+
+  test("a Google-only account confirms deletion with Google", async () => {
+    const email = newEmail();
+    const g = await call<AuthResponse>("POST", "/api/auth/google", { body: { credential: gcred("g-del-1", email) } });
+    const del = (credential?: string) => call("DELETE", "/api/auth/me", { token: g.body.accessToken, body: { credential } });
+    assert.equal((await del()).status, 400);
+    assert.equal((await del(gcred("someone-else", email))).status, 400);
+    assert.equal((await del(gcred("g-del-1", email))).status, 204);
   });
 });

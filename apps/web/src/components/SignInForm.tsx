@@ -1,48 +1,25 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { AuthResponse } from "@invitation/shared";
+import { PASSWORD_MIN, checkPassword, type AuthResponse } from "@invitation/shared";
 import { ApiError, apiFetch } from "@/lib/api-client";
 import { useAuth, type SignInReason } from "@/lib/auth-context";
-import { button, cx, field, hint, label } from "./ui";
+import { renderGoogleButton } from "@/lib/google";
+import PasswordField from "./PasswordField";
+import { button, cx, field, label } from "./ui";
 
-interface GoogleId {
-  initialize: (config: { client_id: string; callback: (r: { credential: string }) => void }) => void;
-  renderButton: (el: HTMLElement, options: Record<string, unknown>) => void;
-}
-declare global {
-  interface Window {
-    google?: { accounts: { id: GoogleId } };
-  }
-}
+type Mode = "signin" | "signup" | "forgot";
 
-let gisScript: Promise<void> | null = null;
-function loadGoogleScript(): Promise<void> {
-  gisScript ??= new Promise<void>((resolve, reject) => {
-    if (window.google?.accounts?.id) return resolve();
-    const s = document.createElement("script");
-    s.src = "https://accounts.google.com/gsi/client";
-    s.async = true;
-    s.onload = () => resolve();
-    s.onerror = () => {
-      gisScript = null;
-      reject(new Error("Google sign-in could not load"));
-    };
-    document.head.appendChild(s);
-  });
-  return gisScript;
-}
-
-type Mode = "signin" | "signup";
-
-const COPY: Record<SignInReason, { signin: [string, string]; signup: [string, string] }> = {
+const COPY: Record<SignInReason, Record<Mode, [string, string]>> = {
   publish: {
     signin: ["Sign in to publish", "Your invitation is ready. Sign in and everything you made so far comes with you."],
     signup: ["Create an account to publish", "It takes a few seconds. Your invitation and photos are kept."],
+    forgot: ["Reset your password", "We'll email you a link to choose a new one."],
   },
   general: {
     signin: ["Welcome back", "Sign in to see your invitations on this device."],
     signup: ["Create your account", "Save your invitations and publish them when they are ready."],
+    forgot: ["Reset your password", "We'll email you a link to choose a new one."],
   },
 };
 
@@ -55,13 +32,14 @@ export default function SignInForm({
   initialMode?: Mode;
   onDone: () => void;
 }) {
-  const { googleClientId, completeAuth } = useAuth();
+  const { googleClientId, emailEnabled, completeAuth } = useAuth();
   const [mode, setMode] = useState<Mode>(initialMode);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
   const googleRef = useRef<HTMLDivElement>(null);
 
   const finish = (res: AuthResponse) => {
@@ -72,44 +50,46 @@ export default function SignInForm({
   finishRef.current = finish;
 
   useEffect(() => {
-    if (!googleClientId || !googleRef.current) return;
+    if (!googleClientId || mode === "forgot" || !googleRef.current) return;
     let cancelled = false;
-    loadGoogleScript()
-      .then(() => {
-        if (cancelled || !googleRef.current || !window.google) return;
-        window.google.accounts.id.initialize({
-          client_id: googleClientId,
-          callback: async ({ credential }) => {
-            setError("");
-            setBusy(true);
-            try {
-              finishRef.current(await apiFetch<AuthResponse>("/auth/google", { method: "POST", body: { credential } }));
-            } catch (err) {
-              setError(err instanceof ApiError ? err.message : "Google sign-in failed. Please try again.");
-            } finally {
-              setBusy(false);
-            }
-          },
-        });
-        window.google.accounts.id.renderButton(googleRef.current, {
-          theme: "outline",
-          size: "large",
-          text: "continue_with",
-          shape: "rectangular",
-          width: 320,
-        });
-      })
-      .catch(() => !cancelled && setError("Google sign-in couldn't load. You can use your email instead."));
+    renderGoogleButton(googleRef.current, googleClientId, async (credential) => {
+      setError("");
+      setBusy(true);
+      try {
+        finishRef.current(await apiFetch<AuthResponse>("/auth/google", { method: "POST", body: { credential } }));
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Google sign-in failed. Please try again.");
+      } finally {
+        setBusy(false);
+      }
+    }).then((ok) => {
+      if (!ok && !cancelled) setError("Google sign-in couldn't load. You can use your email instead.");
+    });
     return () => {
       cancelled = true;
     };
-  }, [googleClientId]);
+  }, [googleClientId, mode]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError("Enter a valid email address.");
-    if (mode === "signup" && password.length < 8) return setError("Use at least 8 characters for your password.");
+    if (mode === "forgot") {
+      setBusy(true);
+      try {
+        await apiFetch("/auth/forgot-password", { method: "POST", body: { email } });
+        setSent(true);
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+    if (mode === "signup") {
+      const problem = checkPassword(password, email);
+      if (problem) return setError(problem);
+    }
     if (mode === "signin" && !password) return setError("Enter your password.");
     setBusy(true);
     try {
@@ -125,6 +105,12 @@ export default function SignInForm({
     }
   }
 
+  function switchTo(next: Mode) {
+    setMode(next);
+    setError("");
+    setSent(false);
+  }
+
   const [title, sub] = COPY[reason][mode];
 
   return (
@@ -132,7 +118,7 @@ export default function SignInForm({
       <h2 className="font-display text-2xl font-semibold text-forest">{title}</h2>
       <p className="mt-1 text-ink-soft">{sub}</p>
 
-      {googleClientId && (
+      {googleClientId && mode !== "forgot" && (
         <>
           <div ref={googleRef} className="mt-5 flex min-h-[44px] justify-center" />
           <div className="my-4 flex items-center gap-3 text-sm text-ink-soft" aria-hidden="true">
@@ -143,7 +129,18 @@ export default function SignInForm({
         </>
       )}
 
-      <form onSubmit={submit} noValidate className={cx("space-y-4", !googleClientId && "mt-5")}>
+      {mode === "forgot" && sent ? (
+        <div role="status" className="mt-5 rounded-lg bg-sage-deep px-4 py-4">
+          <p className="font-semibold">Check your inbox</p>
+          <p className="mt-1 text-sm text-ink-soft">
+            If there's an account for {email}, we've sent a link to reset the password. It works for one hour.
+          </p>
+          <button type="button" className="mt-3 text-sm font-semibold text-forest underline underline-offset-2" onClick={() => switchTo("signin")}>
+            Back to sign in
+          </button>
+        </div>
+      ) : (
+      <form onSubmit={submit} noValidate className={cx("space-y-4", (!googleClientId || mode === "forgot") && "mt-5")}>
         {mode === "signup" && (
           <div>
             <label htmlFor="auth-name" className={label}>
@@ -173,20 +170,25 @@ export default function SignInForm({
             inputMode="email"
           />
         </div>
-        <div>
-          <label htmlFor="auth-password" className={label}>
-            Password
-          </label>
-          <input
-            id="auth-password"
-            type="password"
-            className={field}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete={mode === "signin" ? "current-password" : "new-password"}
-          />
-          {mode === "signup" && <p className={hint}>At least 8 characters.</p>}
-        </div>
+        {mode !== "forgot" && (
+          <>
+            <PasswordField
+              id="auth-password"
+              label="Password"
+              value={password}
+              onChange={setPassword}
+              autoComplete={mode === "signin" ? "current-password" : "new-password"}
+              hint={mode === "signup" ? `At least ${PASSWORD_MIN} characters. A few unrelated words works well.` : undefined}
+            />
+            {mode === "signin" && emailEnabled && (
+              <p className="-mt-2 text-right">
+                <button type="button" className="text-sm font-semibold text-forest underline underline-offset-2" onClick={() => switchTo("forgot")}>
+                  Forgot password?
+                </button>
+              </p>
+            )}
+          </>
+        )}
 
         {error && (
           <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm font-medium text-danger">
@@ -195,23 +197,32 @@ export default function SignInForm({
         )}
 
         <button type="submit" disabled={busy} className={cx(button.dark, "w-full")}>
-          {busy ? "One moment…" : mode === "signin" ? "Sign in" : "Create account"}
+          {busy ? "One moment…" : mode === "signin" ? "Sign in" : mode === "signup" ? "Create account" : "Send reset link"}
         </button>
       </form>
+      )}
 
-      <p className="mt-5 text-center text-sm text-ink-soft">
-        {mode === "signin" ? "New here?" : "Already have an account?"}{" "}
-        <button
-          type="button"
-          className="font-semibold text-forest underline underline-offset-2"
-          onClick={() => {
-            setMode(mode === "signin" ? "signup" : "signin");
-            setError("");
-          }}
-        >
-          {mode === "signin" ? "Create an account" : "Sign in"}
-        </button>
-      </p>
+      {mode === "forgot" ? (
+        !sent && (
+          <p className="mt-5 text-center text-sm text-ink-soft">
+            Remembered it?{" "}
+            <button type="button" className="font-semibold text-forest underline underline-offset-2" onClick={() => switchTo("signin")}>
+              Sign in
+            </button>
+          </p>
+        )
+      ) : (
+        <p className="mt-5 text-center text-sm text-ink-soft">
+          {mode === "signin" ? "New here?" : "Already have an account?"}{" "}
+          <button
+            type="button"
+            className="font-semibold text-forest underline underline-offset-2"
+            onClick={() => switchTo(mode === "signin" ? "signup" : "signin")}
+          >
+            {mode === "signin" ? "Create an account" : "Sign in"}
+          </button>
+        </p>
+      )}
     </div>
   );
 }

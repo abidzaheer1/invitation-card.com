@@ -27,7 +27,7 @@ export default function PublishDialog({
   onUpdated: (patch: Pick<InvitationRecord, "slug" | "published">) => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const { requestSignIn } = useAuth();
+  const { requestSignIn, refreshUser, user, emailEnabled } = useAuth();
   const [slug, setSlug] = useState(record.slug);
   const [slugState, setSlugState] = useState<SlugState>({ kind: "idle" });
   const [busy, setBusy] = useState(false);
@@ -38,6 +38,8 @@ export default function PublishDialog({
   useEffect(() => {
     setSiteHost(window.location.host);
   }, []);
+  const [needsVerify, setNeedsVerify] = useState(false);
+  const [resent, setResent] = useState(false);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -51,6 +53,8 @@ export default function PublishDialog({
       setSlug(record.slug);
       setError("");
       setCopied(false);
+      setNeedsVerify(false);
+      setResent(false);
     }
     // Only reset when the dialog opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -108,9 +112,33 @@ export default function PublishDialog({
       onUpdated({ slug: res.slug, published: res.published });
     } catch (err) {
       if (err instanceof ApiError && err.code === "ACCOUNT_REQUIRED") setError("Please sign in to publish.");
+      else if (err instanceof ApiError && err.code === "EMAIL_NOT_VERIFIED") {
+        setNeedsVerify(true);
+        setError("");
+      }
       else setError(err instanceof ApiError ? err.message : "Couldn't publish. Please try again.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function resend() {
+    try {
+      await apiFetch("/auth/resend-verification", { method: "POST" });
+      setResent(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't send the email. Please try again.");
+    }
+  }
+
+  async function confirmedNow() {
+    const me = await refreshUser();
+    if (me?.emailVerified) {
+      setNeedsVerify(false);
+      setError("");
+      await publish();
+    } else {
+      setError("We can't see the confirmation yet. Open the link in your email, then try again.");
     }
   }
 
@@ -221,6 +249,22 @@ export default function PublishDialog({
                   </button>
                 )}
               </div>
+              {needsVerify && (
+                <div role="status" className="mt-4 rounded-lg border border-marigold/60 bg-marigold/10 px-3 py-3 text-sm">
+                  <p className="font-semibold">Confirm your email to publish</p>
+                  <p className="mt-0.5 text-ink-soft">We sent a link to {user?.email ?? "your email"}. Open it, then come back here.</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {emailEnabled && (
+                      <button type="button" disabled={resent} onClick={resend} className={cx(button.outline, button.small)}>
+                        {resent ? "Sent. Check your inbox" : "Send it again"}
+                      </button>
+                    )}
+                    <button type="button" onClick={confirmedNow} className={cx(button.dark, button.small)}>
+                      I&apos;ve confirmed it
+                    </button>
+                  </div>
+                </div>
+              )}
               {error && (
                 <p role="alert" className="mt-4 rounded-lg bg-danger/10 px-3 py-2 text-sm font-medium text-danger">
                   {error}

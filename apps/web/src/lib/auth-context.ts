@@ -12,11 +12,15 @@ export interface AuthContextValue {
   ready: boolean;
   /** Null when Google sign-in is not set up on the server. */
   googleClientId: string | null;
+  /** True when the server can send email (verification and password reset). */
+  emailEnabled: boolean;
   /** Returns the current user, quietly starting a guest session if there is none. */
   ensureSession: () => Promise<AuthUser>;
   /** Stores a new session after sign-in or sign-up. */
   completeAuth: (res: AuthResponse) => void;
-  signOut: () => void;
+  /** Reloads the user, for example after confirming an email address. */
+  refreshUser: () => Promise<AuthUser | null>;
+  signOut: () => Promise<void>;
   /** Opens the sign-in dialog. Resolves true once the person has signed in. */
   requestSignIn: (reason?: SignInReason) => Promise<boolean>;
 }

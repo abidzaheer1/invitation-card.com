@@ -184,6 +184,12 @@ export interface AuthUser {
   email: string | null;
   isGuest: boolean;
   name: string | null;
+  /** The address has been confirmed, by Google or by clicking the emailed link. */
+  emailVerified: boolean;
+  /** The account can sign in with a password. */
+  hasPassword: boolean;
+  /** A Google account is linked. */
+  hasGoogle: boolean;
 }
 
 export interface AuthResponse {
@@ -194,6 +200,8 @@ export interface AuthResponse {
 export interface AuthConfig {
   /** Google OAuth client id, or null when Google sign-in is not configured. */
   googleClientId: string | null;
+  /** True when the server can send email, so password reset and verification are available. */
+  emailEnabled: boolean;
 }
 
 export interface UploadResult {

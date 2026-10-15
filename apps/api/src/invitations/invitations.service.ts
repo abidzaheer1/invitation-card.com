@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import type { Invitation, Prisma } from "@prisma/client";
+import { MailService } from "../mail/mail.service";
 import {
   DEFAULT_RSVP_FIELDS,
   createInvitationFromTemplate,
@@ -63,7 +64,10 @@ function validateAnswer(field: RsvpField, text: string): string | null {
 
 @Injectable()
 export class InvitationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mail: MailService,
+  ) {}
 
   private async uniqueSlug(title: string): Promise<string> {
     const base = slugify(title);
@@ -177,6 +181,12 @@ export class InvitationsService {
           throw new ForbiddenException({
             code: "ACCOUNT_REQUIRED",
             message: "Sign in to publish your invitation.",
+          });
+        }
+        if (owner && this.mail.requireVerifiedEmail && !owner.emailVerified) {
+          throw new ForbiddenException({
+            code: "EMAIL_NOT_VERIFIED",
+            message: "Confirm your email address to publish. We sent you a link.",
           });
         }
       }

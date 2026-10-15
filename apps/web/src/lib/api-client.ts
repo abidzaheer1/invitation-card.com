@@ -1,22 +1,30 @@
-/** Browser-side helpers for talking to the API (same origin, under /api). */
+import type { AuthResponse } from "@invitation/shared";
 
-const TOKEN_KEY = "ic_token";
+/**
+ * Browser-side helpers for talking to the API (same origin, under /api).
+ *
+ * The short-lived access token is kept in memory only. Page scripts can't read the long-lived
+ * refresh token, which sits in an httpOnly cookie. When the access token runs out, the next
+ * request quietly asks for a new one.
+ */
+
+let accessToken: string | null = null;
 
 export function getToken(): string | null {
-  try {
-    return localStorage.getItem(TOKEN_KEY);
-  } catch {
-    return null;
-  }
+  return accessToken;
 }
 
 export function setToken(token: string | null): void {
-  try {
-    if (token) localStorage.setItem(TOKEN_KEY, token);
-    else localStorage.removeItem(TOKEN_KEY);
-  } catch {
-    /* storage can be blocked in private windows */
-  }
+  accessToken = token;
+}
+
+type SessionListener = (session: AuthResponse | null) => void;
+const listeners = new Set<SessionListener>();
+
+/** Lets the auth provider hear about sessions that were renewed or ended behind the scenes. */
+export function onSessionChange(listener: SessionListener): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }
 
 export class ApiError extends Error {
@@ -36,10 +44,44 @@ interface Init {
   signal?: AbortSignal;
 }
 
-export async function apiFetch<T = unknown>(path: string, init: Init = {}): Promise<T> {
-  const headers: Record<string, string> = {};
-  const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
+let refreshing: Promise<AuthResponse | null> | null = null;
+
+/**
+ * Asks for a new access token using the refresh cookie. Several callers share one request.
+ * Resolves null when there is no session (no cookie, or it has ended).
+ */
+export function refreshSession(): Promise<AuthResponse | null> {
+  refreshing ??= (async () => {
+    try {
+      let res: Response;
+      try {
+        res = await fetch("/api/auth/refresh", { method: "POST", headers: { "X-IC-CSRF": "1" }, cache: "no-store" });
+      } catch {
+        throw new ApiError(0, "Can't reach the server. Check your connection and try again.");
+      }
+      if (res.status === 204) return null;
+      if (res.status === 401) {
+        // Another tab may have just rotated the cookie. Try once more with whatever cookie we have now.
+        await new Promise((r) => setTimeout(r, 250));
+        const retry = await fetch("/api/auth/refresh", { method: "POST", headers: { "X-IC-CSRF": "1" }, cache: "no-store" });
+        if (retry.ok && retry.status !== 204) return (await retry.json()) as AuthResponse;
+        return null;
+      }
+      if (!res.ok) throw new ApiError(res.status, "Couldn't restore your session.");
+      return (await res.json()) as AuthResponse;
+    } finally {
+      setTimeout(() => (refreshing = null), 0);
+    }
+  })();
+  return refreshing.then((session) => {
+    accessToken = session?.accessToken ?? null;
+    return session;
+  });
+}
+
+export async function apiFetch<T = unknown>(path: string, init: Init = {}, retried = false): Promise<T> {
+  const headers: Record<string, string> = { "X-IC-CSRF": "1" };
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
   let body: BodyInit | undefined;
   if (init.form) {
@@ -61,6 +103,14 @@ export async function apiFetch<T = unknown>(path: string, init: Init = {}): Prom
   } catch (err) {
     if (init.signal?.aborted) throw err;
     throw new ApiError(0, "Can't reach the server. Check your connection and try again.");
+  }
+
+  // The access token expires every 15 minutes. Renew it once and repeat the request.
+  // Sign-in style calls have no token to renew, so a 401 there is the real answer.
+  if (res.status === 401 && !retried && accessToken && !path.startsWith("/auth/login") && !path.startsWith("/auth/google")) {
+    const session = await refreshSession();
+    listeners.forEach((l) => l(session));
+    if (session) return apiFetch<T>(path, init, true);
   }
 
   const text = await res.text();

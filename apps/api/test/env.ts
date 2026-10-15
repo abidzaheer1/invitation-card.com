@@ -9,3 +9,4 @@ process.env.JWT_SECRET = "test-secret";
 process.env.GOOGLE_CLIENT_ID = "test-client-id.apps.googleusercontent.com";
 process.env.ROOT_DOMAIN = "invitation-card.com";
 process.env.UPLOADS_DIR = mkdtempSync(join(tmpdir(), "invitation-uploads-"));
+process.env.REFRESH_REUSE_GRACE_MS = "300";
